@@ -165,6 +165,10 @@ class DigitalTwinCameraAdapter(CameraAdapter):
 class DigitalTwinObjectAdapter(ObjectAdapter):
     """
     IsaacLab Scene에서 물체를 관리하는 어댑터
+    
+    스레드 안전한 명령 큐를 사용합니다.
+    - 서버 스레드: spawn/delete 명령을 큐에 추가
+    - 메인 스레드: process_commands()로 실제 USD 프리미티브 생성/삭제
     """
     
     def __init__(self, scene, sim_utils_module, device: str = "cuda:0"):
@@ -173,6 +177,12 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         self.device = device
         self._objects: Dict[str, ObjectInfo] = {}
         self._counter = 0
+        
+        # 명령 큐 (스레드 안전)
+        from queue import Queue
+        self._command_queue: Queue = Queue()
+        self._pending_results: Dict[str, Any] = {}
+        self._results_lock = threading.Lock()
     
     def spawn(
         self, 
@@ -182,8 +192,48 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         name: Optional[str] = None,
         **kwargs
     ) -> str:
+        """물체 생성 요청 (큐에 추가)"""
+        object_id = str(uuid.uuid4())[:8]
+        self._command_queue.put(('spawn', object_id, obj_type, position, rotation, name, kwargs))
+        print(f"[DEBUG] 물체 생성 큐에 추가: {object_id} ({obj_type})")
+        return object_id
+    
+    def delete(self, object_id: str) -> bool:
+        """물체 삭제 요청 (큐에 추가)"""
+        if object_id not in self._objects:
+            return False
+        self._command_queue.put(('delete', object_id))
+        print(f"[DEBUG] 물체 삭제 큐에 추가: {object_id}")
+        return True
+    
+    def process_commands(self) -> None:
+        """
+        메인 스레드에서 호출: 큐에 쌓인 물체 생성/삭제 처리
+        
+        시뮬레이션 루프에서 매 프레임마다 호출해야 합니다.
+        """
+        while not self._command_queue.empty():
+            try:
+                cmd = self._command_queue.get_nowait()
+                if cmd[0] == 'spawn':
+                    _, object_id, obj_type, position, rotation, name, kwargs = cmd
+                    self._execute_spawn(object_id, obj_type, position, rotation, name, **kwargs)
+                elif cmd[0] == 'delete':
+                    self._execute_delete(cmd[1])
+            except Exception as e:
+                print(f"물체 명령 처리 오류: {e}")
+    
+    def _execute_spawn(
+        self, 
+        object_id: str,
+        obj_type: str, 
+        position: List[float], 
+        rotation: List[float],
+        name: Optional[str] = None,
+        **kwargs
+    ) -> None:
+        """실제 물체 생성 (메인 스레드에서 실행)"""
         try:
-            object_id = str(uuid.uuid4())[:8]
             prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
             
@@ -225,7 +275,8 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 )
                 self.sim_utils.spawn_cylinder(prim_path, cfg)
             else:
-                raise ValueError(f"지원하지 않는 물체 유형: {obj_type}")
+                print(f"지원하지 않는 물체 유형: {obj_type}")
+                return
             
             # 물체 정보 저장
             obj_info = ObjectInfo(
@@ -237,16 +288,15 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 prim_path=prim_path,
             )
             self._objects[object_id] = obj_info
-            
-            return object_id
+            print(f"[DEBUG] 물체 생성 완료: {object_id} at {prim_path}")
             
         except Exception as e:
             print(f"물체 생성 오류: {e}")
-            raise
     
-    def delete(self, object_id: str) -> bool:
+    def _execute_delete(self, object_id: str) -> None:
+        """실제 물체 삭제 (메인 스레드에서 실행)"""
         if object_id not in self._objects:
-            return False
+            return
         
         try:
             from pxr import Usd
@@ -259,10 +309,9 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 stage.RemovePrim(obj.prim_path)
             
             del self._objects[object_id]
-            return True
+            print(f"[DEBUG] 물체 삭제 완료: {object_id}")
         except Exception as e:
             print(f"물체 삭제 오류: {e}")
-            return False
     
     def get_object(self, object_id: str) -> Optional[ObjectInfo]:
         return self._objects.get(object_id)
