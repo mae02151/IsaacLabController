@@ -1,0 +1,40 @@
+# IsaacLabController
+
+**재사용 가능한 IsaacLab 프론트엔드 제어 시스템**
+
+웹 브라우저에서 IsaacLab 시뮬레이션을 실시간으로 제어할 수 있는 패키지입니다.
+
+## 기능
+
+- 🎥 카메라 위치/방향 실시간 제어
+- 📦 물체 동적 추가/삭제
+- 🎨 재질(Material) 실시간 변경
+- 📺 시뮬레이션 영상 스트리밍
+
+## 설치
+
+```bash
+pip install -e .
+```
+
+## 빠른 시작
+
+```python
+from isaac_lab_controller import ControlServer
+from my_adapters import MySceneAdapter
+
+# 어댑터로 시뮬레이션 감싸기
+adapter = MySceneAdapter(sim, scene)
+
+# 서버 시작
+server = ControlServer(adapter)
+server.run()  # http://localhost:8000
+```
+
+## 새 환경에서 사용하기
+
+1. `SceneAdapter` 구현
+2. `config.yaml` 작성
+3. 서버 시작
+
+자세한 내용은 `examples/` 폴더를 참조하세요.
