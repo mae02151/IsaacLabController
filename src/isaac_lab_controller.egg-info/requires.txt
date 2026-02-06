@@ -1,0 +1,12 @@
+fastapi>=0.100.0
+uvicorn>=0.23.0
+websockets>=11.0
+pyyaml>=6.0
+
+[dev]
+pytest>=7.0.0
+httpx>=0.24.0
+
+[standalone]
+numpy<2,>=1.22
+opencv-python>=4.5
