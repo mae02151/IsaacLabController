@@ -142,10 +142,15 @@ def main():
         # 씬 업데이트 (센서 데이터 갱신 - 매우 중요!)
         scene.update(sim.get_physics_dt())
         
-        # 메인 스레드에서 프레임 업데이트 (CUDA 스레드 안전성!)
+        # 메인 스레드에서 카메라 명령 처리 및 프레임 업데이트 (CUDA 스레드 안전성!)
+        camera_adapter = adapter.get_camera_adapter()
+        
+        # 1. 큐에 쌓인 카메라 명령 처리 (매 프레임)
+        if hasattr(camera_adapter, 'process_commands'):
+            camera_adapter.process_commands()
+        
+        # 2. 프레임 캡처 (매 2스텝마다)
         if step_count % 2 == 0:
-            # 모든 카메라의 프레임 업데이트
-            camera_adapter = adapter.get_camera_adapter()
             if hasattr(camera_adapter, 'update_frame'):
                 camera_adapter.update_frame()
         

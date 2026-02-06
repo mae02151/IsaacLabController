@@ -26,9 +26,9 @@ class DigitalTwinCameraAdapter(CameraAdapter):
     """
     IsaacLab Camera 센서를 감싸는 어댑터
     
-    스레드 안전한 프레임 버퍼링을 사용합니다.
-    메인 스레드에서 update_frame()을 호출하여 프레임을 캡처하고,
-    서버 스레드에서 get_frame()으로 캐시된 프레임을 읽습니다.
+    스레드 안전한 프레임 버퍼링과 명령 큐를 사용합니다.
+    - 메인 스레드: process_commands() + update_frame() 호출
+    - 서버 스레드: set_lookat/orbit 등이 명령 큐에 추가, get_frame()으로 캐시된 프레임 읽기
     
     Args:
         camera: IsaacLab CameraCfg로 생성된 카메라 센서
@@ -44,6 +44,10 @@ class DigitalTwinCameraAdapter(CameraAdapter):
         self._frame_lock = threading.Lock()
         self._cached_frame: Optional[bytes] = None
         self._frame_ready = False
+        
+        # 명령 큐 (스레드 안전)
+        from queue import Queue
+        self._command_queue: Queue = Queue()
     
     def set_pose(
         self, 
@@ -51,6 +55,17 @@ class DigitalTwinCameraAdapter(CameraAdapter):
         orientation: List[float],
         convention: str = "ros"
     ) -> bool:
+        """카메라 위치/방향 설정 (큐에 추가)"""
+        self._command_queue.put(('set_pose', position, orientation, convention))
+        return True
+    
+    def set_lookat(self, eye: List[float], target: List[float]) -> bool:
+        """LookAt 설정 (큐에 추가)"""
+        self._command_queue.put(('set_lookat', eye, target))
+        return True
+    
+    def _execute_set_pose(self, position: List[float], orientation: List[float], convention: str) -> bool:
+        """실제 set_pose 실행 (메인 스레드에서 호출)"""
         try:
             pos_tensor = torch.tensor([position], device=self.device, dtype=torch.float32)
             ori_tensor = torch.tensor([orientation], device=self.device, dtype=torch.float32)
@@ -61,17 +76,35 @@ class DigitalTwinCameraAdapter(CameraAdapter):
             print(f"카메라 위치 설정 오류: {e}")
             return False
     
-    def set_lookat(self, eye: List[float], target: List[float]) -> bool:
+    def _execute_set_lookat(self, eye: List[float], target: List[float]) -> bool:
+        """실제 set_lookat 실행 (메인 스레드에서 호출)"""
         try:
             eyes = torch.tensor([eye], device=self.device, dtype=torch.float32)
             targets = torch.tensor([target], device=self.device, dtype=torch.float32)
             self.camera.set_world_poses_from_view(eyes, targets)
             self._current_eye = eye
             self._current_target = target
+            print(f"[DEBUG] 카메라 이동: eye={eye}, target={target}")
             return True
         except Exception as e:
             print(f"LookAt 설정 오류: {e}")
             return False
+    
+    def process_commands(self) -> None:
+        """
+        메인 스레드에서 호출: 큐에 쌓인 명령 처리
+        
+        시뮬레이션 루프에서 매 프레임마다 호출해야 합니다.
+        """
+        while not self._command_queue.empty():
+            try:
+                cmd = self._command_queue.get_nowait()
+                if cmd[0] == 'set_lookat':
+                    self._execute_set_lookat(cmd[1], cmd[2])
+                elif cmd[0] == 'set_pose':
+                    self._execute_set_pose(cmd[1], cmd[2], cmd[3])
+            except Exception as e:
+                print(f"명령 처리 오류: {e}")
     
     def update_frame(self) -> None:
         """
