@@ -103,6 +103,8 @@ class DigitalTwinCameraAdapter(CameraAdapter):
                     self._execute_set_lookat(cmd[1], cmd[2])
                 elif cmd[0] == 'set_pose':
                     self._execute_set_pose(cmd[1], cmd[2], cmd[3])
+                elif cmd[0] == 'orbit':
+                    self._execute_orbit(cmd[1], cmd[2], cmd[3], cmd[4])
             except Exception as e:
                 print(f"명령 처리 오류: {e}")
     
@@ -121,7 +123,7 @@ class DigitalTwinCameraAdapter(CameraAdapter):
             rgb_bgr = cv2.cvtColor(rgb_np, cv2.COLOR_RGBA2BGR)
             
             # JPEG 인코딩
-            _, buffer = cv2.imencode('.jpg', rgb_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            _, buffer = cv2.imencode('.jpg', rgb_bgr, [cv2.IMWRITE_JPEG_QUALITY, 65])
             frame_bytes = buffer.tobytes()
             
             # 스레드 안전하게 버퍼 저장
@@ -160,6 +162,49 @@ class DigitalTwinCameraAdapter(CameraAdapter):
             "focal_length": 24.0,
             "horizontal_aperture": 20.955,
         }
+    
+    def orbit(self, azimuth: float, elevation: float, distance: float,
+              target: Optional[List[float]] = None) -> bool:
+        """
+        궤도 카메라 제어 (큐에 추가)
+        
+        구형 좌표계(azimuth, elevation, distance)를 카르테시안 좌표로 변환하여
+        카메라 위치를 설정합니다.
+        
+        Args:
+            azimuth: 수평 각도 (도, 0-360)
+            elevation: 수직 각도 (도, -90 ~ 90)
+            distance: 타겟으로부터의 거리
+            target: 회전 중심점 [x, y, z], 기본값은 현재 타겟
+        """
+        self._command_queue.put(('orbit', azimuth, elevation, distance, target))
+        return True
+    
+    def _execute_orbit(self, azimuth: float, elevation: float, distance: float,
+                       target: Optional[List[float]] = None) -> bool:
+        """실제 orbit 실행 (메인 스레드에서 호출)"""
+        import math
+        
+        # 타겟 설정 (기본값: 현재 타겟 또는 원점)
+        if target is None:
+            target = self._current_target or [0.0, 0.0, 0.0]
+        
+        # 각도를 라디안으로 변환
+        az_rad = math.radians(azimuth)
+        el_rad = math.radians(elevation)
+        
+        # 구형 좌표 -> 카르테시안 좌표 변환
+        # x = distance * cos(elevation) * cos(azimuth)
+        # y = distance * cos(elevation) * sin(azimuth)
+        # z = distance * sin(elevation)
+        eye_x = target[0] + distance * math.cos(el_rad) * math.cos(az_rad)
+        eye_y = target[1] + distance * math.cos(el_rad) * math.sin(az_rad)
+        eye_z = target[2] + distance * math.sin(el_rad)
+        
+        eye = [eye_x, eye_y, eye_z]
+        
+        # set_lookat 실행
+        return self._execute_set_lookat(eye, target)
 
 
 class DigitalTwinObjectAdapter(ObjectAdapter):

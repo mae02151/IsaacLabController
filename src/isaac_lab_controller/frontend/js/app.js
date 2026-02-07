@@ -320,7 +320,7 @@ class App {
             } catch (e) {
                 overlay.classList.remove('hidden');
             }
-        }, 100);  // 10 FPS
+        }, 30);  // ~33 FPS (테스트용 고속)
     }
 
     stopStreaming() {

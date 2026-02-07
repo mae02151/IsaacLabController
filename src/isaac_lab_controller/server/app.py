@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from isaac_lab_controller.adapters.base import SceneAdapter
 from isaac_lab_controller.server.routes import camera, objects, materials
@@ -20,6 +21,80 @@ from isaac_lab_controller.server.websocket_handler import WebSocketHandler
 from isaac_lab_controller.utils.config import load_config, ControllerConfig
 
 logger = logging.getLogger(__name__)
+
+
+def create_app(scene_adapter: SceneAdapter) -> FastAPI:
+    """
+    FastAPI 앱 생성 (독립 실행용)
+    
+    server_standalone.py에서 사용됩니다.
+    
+    Args:
+        scene_adapter: 시뮬레이션 환경 어댑터 (또는 프록시 어댑터)
+    
+    Returns:
+        FastAPI: 설정된 FastAPI 앱
+    """
+    app = FastAPI(
+        title="Isaac Lab Controller",
+        description="IsaacLab 시뮬레이션 프론트엔드 제어 API",
+        version="0.1.0",
+    )
+    
+    # CORS 설정
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # 어댑터를 앱 상태에 저장 (라우트에서 접근용)
+    app.state.scene = scene_adapter
+    app.state.camera = scene_adapter.get_camera_adapter()
+    app.state.objects = scene_adapter.get_object_adapter()
+    app.state.materials = scene_adapter.get_material_adapter()
+    
+    # API 라우트 등록
+    app.include_router(camera.router, prefix="/api/camera", tags=["Camera"])
+    app.include_router(objects.router, prefix="/api/objects", tags=["Objects"])
+    app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
+    
+    # 정적 파일 서빙 (Frontend)
+    frontend_path = Path(__file__).parent.parent / "frontend"
+    if frontend_path.exists():
+        app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
+    
+    # 헬스체크
+    @app.get("/api/health")
+    async def health_check():
+        try:
+            is_running = scene_adapter.is_running() if hasattr(scene_adapter, 'is_running') else True
+        except:
+            is_running = False
+        return {"status": "ok", "simulation_running": is_running}
+    
+    # WebSocket 핸들러
+    ws_handler = WebSocketHandler(scene_adapter)
+    
+    @app.websocket("/ws/stream")
+    async def websocket_stream(websocket: WebSocket):
+        await ws_handler.stream_handler(websocket)
+    
+    @app.websocket("/ws/control")
+    async def websocket_control(websocket: WebSocket):
+        await ws_handler.control_handler(websocket)
+    
+    # 루트 경로에서 index.html 제공
+    @app.get("/")
+    async def serve_root():
+        index_path = frontend_path / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path))
+        return {"message": "Frontend not found"}
+    
+    return app
 
 
 class ControlServer:

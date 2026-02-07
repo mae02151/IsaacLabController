@@ -33,20 +33,28 @@ async def list_objects(request: Request):
     objects = request.app.state.objects
     try:
         obj_list = objects.list_objects()
-        return {
-            "success": True,
-            "data": [
-                {
+        result = []
+        for obj in obj_list:
+            # 딕셔너리와 객체 모두 처리
+            if isinstance(obj, dict):
+                result.append({
+                    "id": obj.get("id", ""),
+                    "name": obj.get("name", ""),
+                    "type": obj.get("obj_type", ""),
+                    "position": obj.get("position", []),
+                    "rotation": obj.get("rotation", []),
+                    "prim_path": obj.get("prim_path", ""),
+                })
+            else:
+                result.append({
                     "id": obj.id,
                     "name": obj.name,
                     "type": obj.obj_type,
                     "position": obj.position,
                     "rotation": obj.rotation,
                     "prim_path": obj.prim_path,
-                }
-                for obj in obj_list
-            ]
-        }
+                })
+        return {"success": True, "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
