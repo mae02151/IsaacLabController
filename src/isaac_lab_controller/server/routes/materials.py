@@ -38,20 +38,28 @@ async def list_materials(request: Request):
     materials = request.app.state.materials
     try:
         mat_list = materials.list_materials()
-        return {
-            "success": True,
-            "data": [
-                {
+        result = []
+        for mat in mat_list:
+            # 딕셔너리와 객체 모두 처리
+            if isinstance(mat, dict):
+                result.append({
+                    "id": mat.get("id", ""),
+                    "name": mat.get("name", ""),
+                    "color": mat.get("color", []),
+                    "roughness": mat.get("roughness", 0.5),
+                    "metallic": mat.get("metallic", 0.0),
+                    "prim_path": mat.get("prim_path", ""),
+                })
+            else:
+                result.append({
                     "id": mat.id,
                     "name": mat.name,
                     "color": mat.color,
                     "roughness": mat.roughness,
                     "metallic": mat.metallic,
                     "prim_path": mat.prim_path,
-                }
-                for mat in mat_list
-            ]
-        }
+                })
+        return {"success": True, "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
