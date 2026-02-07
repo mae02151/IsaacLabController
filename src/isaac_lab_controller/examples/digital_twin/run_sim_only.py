@@ -29,10 +29,13 @@ simulation_app = app_launcher.app
 # 이후 import
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sim import SimulationContext
-from isaaclab.assets import RigidObjectCfg, AssetBaseCfg
+from isaaclab.assets import RigidObjectCfg, AssetBaseCfg, ArticulationCfg
 from isaaclab.sensors import CameraCfg
 import isaaclab.sim as sim_utils
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+
+# 로봇 설정
+from isaaclab_assets import OPEN_MANIPULATOR_X_GRIPPER_CFG
 
 # IPC 브릿지
 from isaac_lab_controller.ipc import SimulationBridge
@@ -107,6 +110,11 @@ def main():
         spawn=sim_utils.GroundPlaneCfg()
     )
 
+    # 로봇 설정
+    scene_cfg.robot = OPEN_MANIPULATOR_X_GRIPPER_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot"
+    )
+
     # 카메라 설정
     cam_pos = np.array([1.5, 0.0, 0.6])
     target_pos = np.array([0.0, 0.0, 0.0])
@@ -139,6 +147,12 @@ def main():
     bridge.register_adapter("object", adapter.get_object_adapter())
     bridge.register_adapter("material", adapter.get_material_adapter())
     bridge.register_adapter("scene", adapter)
+
+    # 로봇 어댑터 등록
+    robot_adapter = adapter.get_robot_adapter()
+    if robot_adapter:
+        bridge.register_adapter("robot", robot_adapter)
+        print("[SIM] 로봇 어댑터 등록 완료")
     
     print("")
     print("=" * 60)
@@ -148,33 +162,37 @@ def main():
     print("")
 
     # 4. 시뮬레이션 루프
+    camera_adapter = adapter.get_camera_adapter()
+    object_adapter = adapter.get_object_adapter()
+    material_adapter = adapter.get_material_adapter()
+
     step_count = 0
     while simulation_app.is_running():
+        # 1. 로봇 명령 처리 (sim.step 이전에 실행해야 렌더링에 반영됨)
+        if robot_adapter and hasattr(robot_adapter, 'process_commands'):
+            robot_adapter.process_commands()
+
+        # 2. 물리 시뮬레이션 + 렌더링
         sim.step()
-        
-        # 씬 업데이트 (센서 데이터 갱신)
+
+        # 3. 씬 업데이트 (센서 데이터 갱신)
         scene.update(sim.get_physics_dt())
-        
-        # 어댑터 가져오기
-        camera_adapter = adapter.get_camera_adapter()
-        object_adapter = adapter.get_object_adapter()
-        material_adapter = adapter.get_material_adapter()
-        
-        # 1. 큐에 쌓인 명령 처리 (매 프레임)
+
+        # 4. 카메라/물체/재질 명령 처리
         if hasattr(camera_adapter, 'process_commands'):
             camera_adapter.process_commands()
         if hasattr(object_adapter, 'process_commands'):
             object_adapter.process_commands()
         if hasattr(material_adapter, 'process_commands'):
             material_adapter.process_commands()
-        
-        # 2. ZMQ 메시지 처리 (non-blocking)
+
+        # 5. ZMQ 메시지 처리 (non-blocking)
         bridge.process_messages()
-        
-        # 3. 프레임 캡처 (매 스텝)
+
+        # 6. 프레임 캡처 (매 스텝)
         if hasattr(camera_adapter, 'update_frame'):
             camera_adapter.update_frame()
-        
+
         step_count += 1
 
     print("[SIM] 시뮬레이션 종료")

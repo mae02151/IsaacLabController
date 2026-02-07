@@ -49,6 +49,7 @@
                         <button class="tab-btn active" data-tab="camera-vla">📷 카메라</button>
                         <button class="tab-btn" data-tab="objects-vla">📦 물체</button>
                         <button class="tab-btn" data-tab="materials-vla">🎨 재질</button>
+                        <button class="tab-btn" data-tab="robot-vla">🤖 로봇</button>
                     </div>
 
                     <!-- 카메라 탭 -->
@@ -169,6 +170,81 @@
                             <button id="btnBindMaterial-vla" class="btn btn-primary">✅ 재질 적용</button>
                         </div>
                     </div>
+
+                    <!-- 로봇 탭 -->
+                    <div class="tab-content" id="tab-robot-vla">
+                        <h3>로봇 제어</h3>
+
+                        <!-- 로봇 정보 -->
+                        <div class="control-group">
+                            <label>로봇 정보</label>
+                            <div class="robot-info-box" id="robotInfoBox">
+                                <p class="empty-message">로봇 정보 로딩 중...</p>
+                            </div>
+                        </div>
+
+                        <!-- 텔레오퍼레이션 제어 -->
+                        <div class="control-group">
+                            <label>텔레오퍼레이션</label>
+                            <div class="teleop-status-box">
+                                <span class="teleop-status-label">상태</span>
+                                <span class="teleop-status-value" id="teleopStatus">대기 중</span>
+                            </div>
+                            <div class="teleop-status-box" id="ros2StatusBox" style="display:none;">
+                                <span class="teleop-status-label">ROS2</span>
+                                <span class="teleop-status-value" id="ros2Status">연결 안됨</span>
+                            </div>
+                            <select id="teleopMode">
+                                <option value="demo">Demo 모드 (사인파 테스트)</option>
+                                <option value="ros2">ROS2 모드 (실제 로봇)</option>
+                            </select>
+                            <button id="btnStartTeleop" class="btn btn-success">▶️ 텔레오프 시작</button>
+                            <button id="btnStopTeleop" class="btn btn-danger" style="display:none;">⏹️ 텔레오프 중지</button>
+                        </div>
+
+                        <!-- 관절 상태 표시 -->
+                        <div class="control-group">
+                            <label>관절 상태</label>
+                            <div class="joint-display" id="jointDisplay">
+                                <div class="joint-row">
+                                    <span class="joint-name">Joint 1</span>
+                                    <span class="joint-value" id="jointVal-0">0.000</span>
+                                    <div class="joint-bar-container">
+                                        <div class="joint-bar" id="jointBar-0" style="width:50%"></div>
+                                    </div>
+                                </div>
+                                <div class="joint-row">
+                                    <span class="joint-name">Joint 2</span>
+                                    <span class="joint-value" id="jointVal-1">0.000</span>
+                                    <div class="joint-bar-container">
+                                        <div class="joint-bar" id="jointBar-1" style="width:50%"></div>
+                                    </div>
+                                </div>
+                                <div class="joint-row">
+                                    <span class="joint-name">Joint 3</span>
+                                    <span class="joint-value" id="jointVal-2">0.000</span>
+                                    <div class="joint-bar-container">
+                                        <div class="joint-bar" id="jointBar-2" style="width:50%"></div>
+                                    </div>
+                                </div>
+                                <div class="joint-row">
+                                    <span class="joint-name">Joint 4</span>
+                                    <span class="joint-value" id="jointVal-3">0.000</span>
+                                    <div class="joint-bar-container">
+                                        <div class="joint-bar" id="jointBar-3" style="width:50%"></div>
+                                    </div>
+                                </div>
+                                <div class="joint-row">
+                                    <span class="joint-name">Gripper</span>
+                                    <span class="joint-value" id="jointVal-4">0.000</span>
+                                    <div class="joint-bar-container">
+                                        <div class="joint-bar joint-bar-gripper" id="jointBar-4" style="width:50%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
                 </aside>
             </main>
         </div>
@@ -190,131 +266,51 @@
                     </div>
                 </section>
 
-                <!-- 오른쪽: 제어 패널 -->
+                <!-- 오른쪽: RL 제어 패널 -->
                 <aside class="control-panel">
-                    <!-- 탭 메뉴 -->
+                    <!-- 탭 메뉴 (Train / Inference) -->
                     <div class="tab-menu">
-                        <button class="tab-btn active" data-tab="camera-rl">📷 카메라</button>
-                        <button class="tab-btn" data-tab="objects-rl">📦 물체</button>
-                        <button class="tab-btn" data-tab="materials-rl">🎨 재질</button>
+                        <button class="tab-btn active" data-tab="train-rl">🏋️ Train</button>
+                        <button class="tab-btn" data-tab="inference-rl">🚀 Inference</button>
                     </div>
 
-                    <!-- 카메라 탭 -->
-                    <div class="tab-content active" id="tab-camera-rl">
-                        <h3>카메라 제어</h3>
+                    <!-- Train 탭 -->
+                    <div class="tab-content active" id="tab-train-rl">
+                        <h3>학습 설정</h3>
 
                         <div class="control-group">
-                            <label>카메라 선택</label>
-                            <select id="cameraSelect-rl">
-                                <option value="">로딩 중...</option>
-                            </select>
-                            <button id="btnRefreshCameras-rl" class="btn btn-secondary">🔄</button>
+                            <label>로봇 수 (num_envs)</label>
+                            <input type="number" id="numEnvs" min="1" max="4096" value="64" step="1">
+                            <p class="rl-hint">동시에 학습할 환경(로봇) 수를 설정합니다.</p>
                         </div>
 
                         <div class="control-group">
-                            <label>Orbit 제어</label>
-                            <div class="slider-group">
-                                <label>수평 (Azimuth): <span id="azimuthValue-rl">0</span>°</label>
-                                <input type="range" id="azimuth-rl" min="0" max="360" value="0">
-                            </div>
-                            <div class="slider-group">
-                                <label>수직 (Elevation): <span id="elevationValue-rl">30</span>°</label>
-                                <input type="range" id="elevation-rl" min="-90" max="90" value="30">
-                            </div>
-                            <div class="slider-group">
-                                <label>거리: <span id="distanceValue-rl">2.0</span>m</label>
-                                <input type="range" id="distance-rl" min="0.5" max="10" value="2" step="0.1">
+                            <div class="rl-status-box" id="trainStatusBox">
+                                <span class="rl-status-label">상태</span>
+                                <span class="rl-status-value" id="trainStatus">대기 중</span>
                             </div>
                         </div>
 
                         <div class="control-group">
-                            <label>위치 직접 입력</label>
-                            <div class="input-row">
-                                <input type="number" id="camX-rl" placeholder="X" step="0.1" value="1.5">
-                                <input type="number" id="camY-rl" placeholder="Y" step="0.1" value="0">
-                                <input type="number" id="camZ-rl" placeholder="Z" step="0.1" value="0.6">
-                            </div>
-                            <button id="btnSetPosition-rl" class="btn btn-primary">위치 적용</button>
-                        </div>
-
-                        <div class="control-group">
-                            <label>타겟 위치</label>
-                            <div class="input-row">
-                                <input type="number" id="targetX-rl" placeholder="X" step="0.1" value="0">
-                                <input type="number" id="targetY-rl" placeholder="Y" step="0.1" value="0">
-                                <input type="number" id="targetZ-rl" placeholder="Z" step="0.1" value="0">
-                            </div>
-                            <button id="btnSetTarget-rl" class="btn btn-primary">타겟 적용</button>
+                            <button id="btnStartTrain" class="btn btn-success btn-lg">▶️ Train 시작</button>
+                            <button id="btnStopTrain" class="btn btn-danger btn-lg" style="margin-top: 0.5rem; display: none;">⏹️ Train 중지</button>
                         </div>
                     </div>
 
-                    <!-- 물체 탭 -->
-                    <div class="tab-content" id="tab-objects-rl">
-                        <h3>물체 관리</h3>
+                    <!-- Inference 탭 -->
+                    <div class="tab-content" id="tab-inference-rl">
+                        <h3>추론 실행</h3>
 
                         <div class="control-group">
-                            <label>새 물체 추가</label>
-                            <select id="objectType-rl">
-                                <option value="box">📦 박스</option>
-                                <option value="sphere">🔴 구</option>
-                                <option value="cylinder">🥫 원통</option>
-                                <option value="cone">🔺 원뿔</option>
-                            </select>
-                            <div class="input-row">
-                                <input type="number" id="objX-rl" placeholder="X" step="0.1" value="0">
-                                <input type="number" id="objY-rl" placeholder="Y" step="0.1" value="0">
-                                <input type="number" id="objZ-rl" placeholder="Z" step="0.1" value="0.5">
-                            </div>
-                            <button id="btnSpawnObject-rl" class="btn btn-success">➕ 물체 추가</button>
-                        </div>
-
-                        <div class="control-group">
-                            <label>현재 물체 목록</label>
-                            <div class="object-list" id="objectList-rl">
-                                <p class="empty-message">물체가 없습니다.</p>
-                            </div>
-                            <button id="btnRefreshObjects-rl" class="btn btn-secondary">🔄 새로고침</button>
-                        </div>
-                    </div>
-
-                    <!-- 재질 탭 -->
-                    <div class="tab-content" id="tab-materials-rl">
-                        <h3>재질 관리</h3>
-
-                        <div class="control-group">
-                            <label>새 재질 생성</label>
-                            <input type="text" id="materialName-rl" placeholder="재질 이름">
-                            <div class="color-picker">
-                                <label>색상:</label>
-                                <input type="color" id="materialColor-rl" value="#ff4444">
-                            </div>
-                            <div class="slider-group">
-                                <label>거칠기: <span id="roughnessValue-rl">0.5</span></label>
-                                <input type="range" id="roughness-rl" min="0" max="1" value="0.5" step="0.1">
-                            </div>
-                            <div class="slider-group">
-                                <label>금속성: <span id="metallicValue-rl">0.0</span></label>
-                                <input type="range" id="metallic-rl" min="0" max="1" value="0" step="0.1">
-                            </div>
-                            <button id="btnCreateMaterial-rl" class="btn btn-success">➕ 재질 생성</button>
-                        </div>
-
-                        <div class="control-group">
-                            <label>프리셋 재질</label>
-                            <div class="preset-materials" id="presetMaterials-rl">
-                                <!-- 동적으로 채워짐 -->
+                            <div class="rl-status-box" id="inferenceStatusBox">
+                                <span class="rl-status-label">상태</span>
+                                <span class="rl-status-value" id="inferenceStatus">대기 중</span>
                             </div>
                         </div>
 
                         <div class="control-group">
-                            <label>재질 적용</label>
-                            <select id="targetObject-rl">
-                                <option value="">물체 선택...</option>
-                            </select>
-                            <select id="selectedMaterial-rl">
-                                <option value="">재질 선택...</option>
-                            </select>
-                            <button id="btnBindMaterial-rl" class="btn btn-primary">✅ 재질 적용</button>
+                            <button id="btnStartInference" class="btn btn-success btn-lg">▶️ Inference 시작</button>
+                            <button id="btnStopInference" class="btn btn-danger btn-lg" style="margin-top: 0.5rem; display: none;">⏹️ Inference 중지</button>
                         </div>
                     </div>
                 </aside>
