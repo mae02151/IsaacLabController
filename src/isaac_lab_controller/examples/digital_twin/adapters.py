@@ -34,17 +34,23 @@ class DigitalTwinCameraAdapter(CameraAdapter):
         camera: IsaacLab CameraCfg로 생성된 카메라 센서
     """
     
-    def __init__(self, camera, device: str = "cuda:0"):
+    def __init__(self, camera, device: str = "cuda:0", target_fps: int = 30, jpeg_quality: int = 85):
         self.camera = camera
         self.device = device
         self._current_eye = [1.5, 0.0, 0.6]
         self._current_target = [0.0, 0.0, 0.0]
-        
+
+        # FPS 제한
+        self._target_fps = target_fps
+        self._frame_interval = 1.0 / target_fps
+        self._last_frame_time = 0.0
+        self._jpeg_quality = jpeg_quality
+
         # 스레드 안전한 프레임 버퍼
         self._frame_lock = threading.Lock()
         self._cached_frame: Optional[bytes] = None
         self._frame_ready = False
-        
+
         # 명령 큐 (스레드 안전)
         from queue import Queue
         self._command_queue: Queue = Queue()
@@ -116,32 +122,65 @@ class DigitalTwinCameraAdapter(CameraAdapter):
             
             # 회전 행렬 -> 쿼터니언 변환
             # 카메라는 -Z를 바라보므로 forward를 뒤집음
-            m = Gf.Matrix3d()
-            m.SetRow(0, right)
-            m.SetRow(1, actual_up)
-            m.SetRow(2, -forward)  # 카메라는 -Z 방향을 바라봄
-            
-            rotation = Gf.Rotation(m)
-            quat = rotation.GetQuat()
+            # 행렬의 각 행: right, actual_up, -forward
+            r = [right[0], right[1], right[2]]
+            u = [actual_up[0], actual_up[1], actual_up[2]]
+            f = [-forward[0], -forward[1], -forward[2]]
+
+            # 회전 행렬에서 쿼터니언 직접 계산 (Matrix3d → Rotation 미지원)
+            tr = r[0] + u[1] + f[2]
+            if tr > 0:
+                s = math.sqrt(tr + 1.0) * 2
+                qw = 0.25 * s
+                qx = (u[2] - f[1]) / s
+                qy = (f[0] - r[2]) / s
+                qz = (r[1] - u[0]) / s
+            elif r[0] > u[1] and r[0] > f[2]:
+                s = math.sqrt(1.0 + r[0] - u[1] - f[2]) * 2
+                qw = (u[2] - f[1]) / s
+                qx = 0.25 * s
+                qy = (r[1] + u[0]) / s
+                qz = (r[2] + f[0]) / s
+            elif u[1] > f[2]:
+                s = math.sqrt(1.0 + u[1] - r[0] - f[2]) * 2
+                qw = (f[0] - r[2]) / s
+                qx = (r[1] + u[0]) / s
+                qy = 0.25 * s
+                qz = (u[2] + f[1]) / s
+            else:
+                s = math.sqrt(1.0 + f[2] - r[0] - u[1]) * 2
+                qw = (r[1] - u[0]) / s
+                qx = (r[2] + f[0]) / s
+                qy = (u[2] + f[1]) / s
+                qz = 0.25 * s
+
+            quat = Gf.Quatd(qw, qx, qy, qz)
             
             # USD Stage에서 카메라 prim 가져오기
+            # IsaacLab의 prim_path는 정규식 패턴(env_.*)을 포함하므로
+            # 실제 USD 경로로 변환 (env_0 사용)
             stage = omni.usd.get_context().get_stage()
-            camera_prim = stage.GetPrimAtPath(self.camera.cfg.prim_path)
+            resolved_path = self.camera.cfg.prim_path.replace(".*", "0")
+            camera_prim = stage.GetPrimAtPath(resolved_path)
             
             if camera_prim.IsValid():
                 xform = UsdGeom.Xformable(camera_prim)
                 xform.ClearXformOpOrder()
-                
+
                 # 변환 설정
                 translate_op = xform.AddTranslateOp()
                 translate_op.Set(Gf.Vec3d(eye[0], eye[1], eye[2]))
-                
-                orient_op = xform.AddOrientOp()
-                orient_op.Set(Gf.Quatd(quat.GetReal(), *quat.GetImaginary()))
-            
-            self._current_eye = eye
-            self._current_target = target
-            print(f"[DEBUG] 카메라 이동 (USD API): eye={eye}, target={target}")
+
+                orient_op = xform.AddOrientOp(precision=UsdGeom.XformOp.PrecisionDouble)
+                orient_op.Set(quat)
+
+                self._current_eye = eye
+                self._current_target = target
+                print(f"[DEBUG] 카메라 이동 (USD API): eye={eye}, target={target}, path={resolved_path}")
+            else:
+                print(f"[ERROR] 카메라 prim을 찾을 수 없음: {resolved_path}")
+                return False
+
             return True
             
         except Exception as e:
@@ -171,21 +210,29 @@ class DigitalTwinCameraAdapter(CameraAdapter):
     def update_frame(self) -> None:
         """
         메인 스레드에서 호출: 카메라 프레임 캡처 및 버퍼 저장
-        
+
         이 메서드는 반드시 시뮬레이션 메인 스레드에서 호출해야 합니다.
+        target_fps에 따라 프레임 캡처를 스킵하여 불필요한 GPU→CPU 복사를 줄입니다.
         """
+        import time
+
+        now = time.monotonic()
+        if (now - self._last_frame_time) < self._frame_interval:
+            return
+        self._last_frame_time = now
+
         try:
             # 카메라 데이터 가져오기 (CUDA 텐서)
             rgb_tensor = self.camera.data.output["rgb"][0]  # (H, W, 4)
             rgb_np = rgb_tensor.cpu().numpy().astype(np.uint8)
-            
+
             # RGBA -> BGR 변환
             rgb_bgr = cv2.cvtColor(rgb_np, cv2.COLOR_RGBA2BGR)
-            
+
             # JPEG 인코딩
-            _, buffer = cv2.imencode('.jpg', rgb_bgr, [cv2.IMWRITE_JPEG_QUALITY, 65])
+            _, buffer = cv2.imencode('.jpg', rgb_bgr, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality])
             frame_bytes = buffer.tobytes()
-            
+
             # 스레드 안전하게 버퍼 저장
             with self._frame_lock:
                 self._cached_frame = frame_bytes
