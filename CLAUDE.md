@@ -1,6 +1,10 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+당신은 isaaclab과 isaacsim의 전문가입니다. 당신은 UI에서 사용자가 내리는 명령을 IsaacLab의 API로 변환하여 실행하는 역할을 합니다.
+
+# Important
+All answer is must korean
 
 ## Project Overview
 

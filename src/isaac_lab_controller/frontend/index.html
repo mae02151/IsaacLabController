@@ -19,151 +19,307 @@
             </div>
         </header>
 
-        <!-- 메인 컨텐츠 -->
-        <main class="main-content">
-            <!-- 왼쪽: 영상 미리보기 -->
-            <section class="preview-section">
-                <div class="preview-container">
-                    <img id="previewImage" src="" alt="시뮬레이션 미리보기">
-                    <div class="preview-overlay" id="previewOverlay">
-                        <p>스트리밍 연결 중...</p>
-                    </div>
-                </div>
-                <div class="preview-controls">
-                    <button id="btnSnapshot" class="btn btn-secondary">📷 스냅샷</button>
-                    <button id="btnToggleStream" class="btn btn-primary">⏸️ 스트림 일시정지</button>
-                </div>
-            </section>
+        <!-- 메인 탭 (VLA / Reinforcement) -->
+        <div class="main-tab-menu">
+            <button class="main-tab-btn active" data-main-tab="vla">🤖 VLA</button>
+            <button class="main-tab-btn" data-main-tab="reinforcement">🎯 Reinforcement</button>
+        </div>
 
-            <!-- 오른쪽: 제어 패널 -->
-            <aside class="control-panel">
-                <!-- 탭 메뉴 -->
-                <div class="tab-menu">
-                    <button class="tab-btn active" data-tab="camera">📷 카메라</button>
-                    <button class="tab-btn" data-tab="objects">📦 물체</button>
-                    <button class="tab-btn" data-tab="materials">🎨 재질</button>
-                </div>
-
-                <!-- 카메라 탭 -->
-                <div class="tab-content active" id="tab-camera">
-                    <h3>카메라 제어</h3>
-
-                    <div class="control-group">
-                        <label>카메라 선택</label>
-                        <select id="cameraSelect">
-                            <option value="">로딩 중...</option>
-                        </select>
-                        <button id="btnRefreshCameras" class="btn btn-secondary">🔄</button>
-                    </div>
-
-                    <div class="control-group">
-                        <label>Orbit 제어</label>
-                        <div class="slider-group">
-                            <label>수평 (Azimuth): <span id="azimuthValue">0</span>°</label>
-                            <input type="range" id="azimuth" min="0" max="360" value="0">
-                        </div>
-                        <div class="slider-group">
-                            <label>수직 (Elevation): <span id="elevationValue">30</span>°</label>
-                            <input type="range" id="elevation" min="-90" max="90" value="30">
-                        </div>
-                        <div class="slider-group">
-                            <label>거리: <span id="distanceValue">2.0</span>m</label>
-                            <input type="range" id="distance" min="0.5" max="10" value="2" step="0.1">
+        <!-- ==================== VLA 탭 ==================== -->
+        <div class="main-tab-content active" id="main-tab-vla">
+            <main class="main-content">
+                <!-- 왼쪽: 영상 미리보기 -->
+                <section class="preview-section">
+                    <div class="preview-container">
+                        <img id="previewImage-vla" class="preview-image" src="" alt="시뮬레이션 미리보기">
+                        <div class="preview-overlay" id="previewOverlay-vla">
+                            <p>스트리밍 연결 중...</p>
                         </div>
                     </div>
+                    <div class="preview-controls">
+                        <button id="btnSnapshot-vla" class="btn btn-secondary">📷 스냅샷</button>
+                        <button id="btnToggleStream-vla" class="btn btn-primary">⏸️ 스트림 일시정지</button>
+                    </div>
+                </section>
 
-                    <div class="control-group">
-                        <label>위치 직접 입력</label>
-                        <div class="input-row">
-                            <input type="number" id="camX" placeholder="X" step="0.1" value="1.5">
-                            <input type="number" id="camY" placeholder="Y" step="0.1" value="0">
-                            <input type="number" id="camZ" placeholder="Z" step="0.1" value="0.6">
-                        </div>
-                        <button id="btnSetPosition" class="btn btn-primary">위치 적용</button>
+                <!-- 오른쪽: 제어 패널 -->
+                <aside class="control-panel">
+                    <!-- 탭 메뉴 -->
+                    <div class="tab-menu">
+                        <button class="tab-btn active" data-tab="camera-vla">📷 카메라</button>
+                        <button class="tab-btn" data-tab="objects-vla">📦 물체</button>
+                        <button class="tab-btn" data-tab="materials-vla">🎨 재질</button>
                     </div>
 
-                    <div class="control-group">
-                        <label>타겟 위치</label>
-                        <div class="input-row">
-                            <input type="number" id="targetX" placeholder="X" step="0.1" value="0">
-                            <input type="number" id="targetY" placeholder="Y" step="0.1" value="0">
-                            <input type="number" id="targetZ" placeholder="Z" step="0.1" value="0">
-                        </div>
-                        <button id="btnSetTarget" class="btn btn-primary">타겟 적용</button>
-                    </div>
-                </div>
+                    <!-- 카메라 탭 -->
+                    <div class="tab-content active" id="tab-camera-vla">
+                        <h3>카메라 제어</h3>
 
-                <!-- 물체 탭 -->
-                <div class="tab-content" id="tab-objects">
-                    <h3>물체 관리</h3>
-
-                    <div class="control-group">
-                        <label>새 물체 추가</label>
-                        <select id="objectType">
-                            <option value="box">📦 박스</option>
-                            <option value="sphere">🔴 구</option>
-                            <option value="cylinder">🥫 원통</option>
-                            <option value="cone">🔺 원뿔</option>
-                        </select>
-                        <div class="input-row">
-                            <input type="number" id="objX" placeholder="X" step="0.1" value="0">
-                            <input type="number" id="objY" placeholder="Y" step="0.1" value="0">
-                            <input type="number" id="objZ" placeholder="Z" step="0.1" value="0.5">
+                        <div class="control-group">
+                            <label>카메라 선택</label>
+                            <select id="cameraSelect-vla">
+                                <option value="">로딩 중...</option>
+                            </select>
+                            <button id="btnRefreshCameras-vla" class="btn btn-secondary">🔄</button>
                         </div>
-                        <button id="btnSpawnObject" class="btn btn-success">➕ 물체 추가</button>
-                    </div>
 
-                    <div class="control-group">
-                        <label>현재 물체 목록</label>
-                        <div class="object-list" id="objectList">
-                            <p class="empty-message">물체가 없습니다.</p>
+                        <div class="control-group">
+                            <label>Orbit 제어</label>
+                            <div class="slider-group">
+                                <label>수평 (Azimuth): <span id="azimuthValue-vla">0</span>°</label>
+                                <input type="range" id="azimuth-vla" min="0" max="360" value="0">
+                            </div>
+                            <div class="slider-group">
+                                <label>수직 (Elevation): <span id="elevationValue-vla">30</span>°</label>
+                                <input type="range" id="elevation-vla" min="-90" max="90" value="30">
+                            </div>
+                            <div class="slider-group">
+                                <label>거리: <span id="distanceValue-vla">2.0</span>m</label>
+                                <input type="range" id="distance-vla" min="0.5" max="10" value="2" step="0.1">
+                            </div>
                         </div>
-                        <button id="btnRefreshObjects" class="btn btn-secondary">🔄 새로고침</button>
-                    </div>
-                </div>
 
-                <!-- 재질 탭 -->
-                <div class="tab-content" id="tab-materials">
-                    <h3>재질 관리</h3>
+                        <div class="control-group">
+                            <label>위치 직접 입력</label>
+                            <div class="input-row">
+                                <input type="number" id="camX-vla" placeholder="X" step="0.1" value="1.5">
+                                <input type="number" id="camY-vla" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="camZ-vla" placeholder="Z" step="0.1" value="0.6">
+                            </div>
+                            <button id="btnSetPosition-vla" class="btn btn-primary">위치 적용</button>
+                        </div>
 
-                    <div class="control-group">
-                        <label>새 재질 생성</label>
-                        <input type="text" id="materialName" placeholder="재질 이름">
-                        <div class="color-picker">
-                            <label>색상:</label>
-                            <input type="color" id="materialColor" value="#ff4444">
-                        </div>
-                        <div class="slider-group">
-                            <label>거칠기: <span id="roughnessValue">0.5</span></label>
-                            <input type="range" id="roughness" min="0" max="1" value="0.5" step="0.1">
-                        </div>
-                        <div class="slider-group">
-                            <label>금속성: <span id="metallicValue">0.0</span></label>
-                            <input type="range" id="metallic" min="0" max="1" value="0" step="0.1">
-                        </div>
-                        <button id="btnCreateMaterial" class="btn btn-success">➕ 재질 생성</button>
-                    </div>
-
-                    <div class="control-group">
-                        <label>프리셋 재질</label>
-                        <div class="preset-materials" id="presetMaterials">
-                            <!-- 동적으로 채워짐 -->
+                        <div class="control-group">
+                            <label>타겟 위치</label>
+                            <div class="input-row">
+                                <input type="number" id="targetX-vla" placeholder="X" step="0.1" value="0">
+                                <input type="number" id="targetY-vla" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="targetZ-vla" placeholder="Z" step="0.1" value="0">
+                            </div>
+                            <button id="btnSetTarget-vla" class="btn btn-primary">타겟 적용</button>
                         </div>
                     </div>
 
-                    <div class="control-group">
-                        <label>재질 적용</label>
-                        <select id="targetObject">
-                            <option value="">물체 선택...</option>
-                        </select>
-                        <select id="selectedMaterial">
-                            <option value="">재질 선택...</option>
-                        </select>
-                        <button id="btnBindMaterial" class="btn btn-primary">✅ 재질 적용</button>
+                    <!-- 물체 탭 -->
+                    <div class="tab-content" id="tab-objects-vla">
+                        <h3>물체 관리</h3>
+
+                        <div class="control-group">
+                            <label>새 물체 추가</label>
+                            <select id="objectType-vla">
+                                <option value="box">📦 박스</option>
+                                <option value="sphere">🔴 구</option>
+                                <option value="cylinder">🥫 원통</option>
+                                <option value="cone">🔺 원뿔</option>
+                            </select>
+                            <div class="input-row">
+                                <input type="number" id="objX-vla" placeholder="X" step="0.1" value="0">
+                                <input type="number" id="objY-vla" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="objZ-vla" placeholder="Z" step="0.1" value="0.5">
+                            </div>
+                            <button id="btnSpawnObject-vla" class="btn btn-success">➕ 물체 추가</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>현재 물체 목록</label>
+                            <div class="object-list" id="objectList-vla">
+                                <p class="empty-message">물체가 없습니다.</p>
+                            </div>
+                            <button id="btnRefreshObjects-vla" class="btn btn-secondary">🔄 새로고침</button>
+                        </div>
                     </div>
-                </div>
-            </aside>
-        </main>
+
+                    <!-- 재질 탭 -->
+                    <div class="tab-content" id="tab-materials-vla">
+                        <h3>재질 관리</h3>
+
+                        <div class="control-group">
+                            <label>새 재질 생성</label>
+                            <input type="text" id="materialName-vla" placeholder="재질 이름">
+                            <div class="color-picker">
+                                <label>색상:</label>
+                                <input type="color" id="materialColor-vla" value="#ff4444">
+                            </div>
+                            <div class="slider-group">
+                                <label>거칠기: <span id="roughnessValue-vla">0.5</span></label>
+                                <input type="range" id="roughness-vla" min="0" max="1" value="0.5" step="0.1">
+                            </div>
+                            <div class="slider-group">
+                                <label>금속성: <span id="metallicValue-vla">0.0</span></label>
+                                <input type="range" id="metallic-vla" min="0" max="1" value="0" step="0.1">
+                            </div>
+                            <button id="btnCreateMaterial-vla" class="btn btn-success">➕ 재질 생성</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>프리셋 재질</label>
+                            <div class="preset-materials" id="presetMaterials-vla">
+                                <!-- 동적으로 채워짐 -->
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label>재질 적용</label>
+                            <select id="targetObject-vla">
+                                <option value="">물체 선택...</option>
+                            </select>
+                            <select id="selectedMaterial-vla">
+                                <option value="">재질 선택...</option>
+                            </select>
+                            <button id="btnBindMaterial-vla" class="btn btn-primary">✅ 재질 적용</button>
+                        </div>
+                    </div>
+                </aside>
+            </main>
+        </div>
+
+        <!-- ==================== Reinforcement 탭 ==================== -->
+        <div class="main-tab-content" id="main-tab-reinforcement">
+            <main class="main-content">
+                <!-- 왼쪽: 영상 미리보기 -->
+                <section class="preview-section">
+                    <div class="preview-container">
+                        <img id="previewImage-rl" class="preview-image" src="" alt="시뮬레이션 미리보기">
+                        <div class="preview-overlay" id="previewOverlay-rl">
+                            <p>스트리밍 연결 중...</p>
+                        </div>
+                    </div>
+                    <div class="preview-controls">
+                        <button id="btnSnapshot-rl" class="btn btn-secondary">📷 스냅샷</button>
+                        <button id="btnToggleStream-rl" class="btn btn-primary">⏸️ 스트림 일시정지</button>
+                    </div>
+                </section>
+
+                <!-- 오른쪽: 제어 패널 -->
+                <aside class="control-panel">
+                    <!-- 탭 메뉴 -->
+                    <div class="tab-menu">
+                        <button class="tab-btn active" data-tab="camera-rl">📷 카메라</button>
+                        <button class="tab-btn" data-tab="objects-rl">📦 물체</button>
+                        <button class="tab-btn" data-tab="materials-rl">🎨 재질</button>
+                    </div>
+
+                    <!-- 카메라 탭 -->
+                    <div class="tab-content active" id="tab-camera-rl">
+                        <h3>카메라 제어</h3>
+
+                        <div class="control-group">
+                            <label>카메라 선택</label>
+                            <select id="cameraSelect-rl">
+                                <option value="">로딩 중...</option>
+                            </select>
+                            <button id="btnRefreshCameras-rl" class="btn btn-secondary">🔄</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Orbit 제어</label>
+                            <div class="slider-group">
+                                <label>수평 (Azimuth): <span id="azimuthValue-rl">0</span>°</label>
+                                <input type="range" id="azimuth-rl" min="0" max="360" value="0">
+                            </div>
+                            <div class="slider-group">
+                                <label>수직 (Elevation): <span id="elevationValue-rl">30</span>°</label>
+                                <input type="range" id="elevation-rl" min="-90" max="90" value="30">
+                            </div>
+                            <div class="slider-group">
+                                <label>거리: <span id="distanceValue-rl">2.0</span>m</label>
+                                <input type="range" id="distance-rl" min="0.5" max="10" value="2" step="0.1">
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label>위치 직접 입력</label>
+                            <div class="input-row">
+                                <input type="number" id="camX-rl" placeholder="X" step="0.1" value="1.5">
+                                <input type="number" id="camY-rl" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="camZ-rl" placeholder="Z" step="0.1" value="0.6">
+                            </div>
+                            <button id="btnSetPosition-rl" class="btn btn-primary">위치 적용</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>타겟 위치</label>
+                            <div class="input-row">
+                                <input type="number" id="targetX-rl" placeholder="X" step="0.1" value="0">
+                                <input type="number" id="targetY-rl" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="targetZ-rl" placeholder="Z" step="0.1" value="0">
+                            </div>
+                            <button id="btnSetTarget-rl" class="btn btn-primary">타겟 적용</button>
+                        </div>
+                    </div>
+
+                    <!-- 물체 탭 -->
+                    <div class="tab-content" id="tab-objects-rl">
+                        <h3>물체 관리</h3>
+
+                        <div class="control-group">
+                            <label>새 물체 추가</label>
+                            <select id="objectType-rl">
+                                <option value="box">📦 박스</option>
+                                <option value="sphere">🔴 구</option>
+                                <option value="cylinder">🥫 원통</option>
+                                <option value="cone">🔺 원뿔</option>
+                            </select>
+                            <div class="input-row">
+                                <input type="number" id="objX-rl" placeholder="X" step="0.1" value="0">
+                                <input type="number" id="objY-rl" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="objZ-rl" placeholder="Z" step="0.1" value="0.5">
+                            </div>
+                            <button id="btnSpawnObject-rl" class="btn btn-success">➕ 물체 추가</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>현재 물체 목록</label>
+                            <div class="object-list" id="objectList-rl">
+                                <p class="empty-message">물체가 없습니다.</p>
+                            </div>
+                            <button id="btnRefreshObjects-rl" class="btn btn-secondary">🔄 새로고침</button>
+                        </div>
+                    </div>
+
+                    <!-- 재질 탭 -->
+                    <div class="tab-content" id="tab-materials-rl">
+                        <h3>재질 관리</h3>
+
+                        <div class="control-group">
+                            <label>새 재질 생성</label>
+                            <input type="text" id="materialName-rl" placeholder="재질 이름">
+                            <div class="color-picker">
+                                <label>색상:</label>
+                                <input type="color" id="materialColor-rl" value="#ff4444">
+                            </div>
+                            <div class="slider-group">
+                                <label>거칠기: <span id="roughnessValue-rl">0.5</span></label>
+                                <input type="range" id="roughness-rl" min="0" max="1" value="0.5" step="0.1">
+                            </div>
+                            <div class="slider-group">
+                                <label>금속성: <span id="metallicValue-rl">0.0</span></label>
+                                <input type="range" id="metallic-rl" min="0" max="1" value="0" step="0.1">
+                            </div>
+                            <button id="btnCreateMaterial-rl" class="btn btn-success">➕ 재질 생성</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>프리셋 재질</label>
+                            <div class="preset-materials" id="presetMaterials-rl">
+                                <!-- 동적으로 채워짐 -->
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label>재질 적용</label>
+                            <select id="targetObject-rl">
+                                <option value="">물체 선택...</option>
+                            </select>
+                            <select id="selectedMaterial-rl">
+                                <option value="">재질 선택...</option>
+                            </select>
+                            <button id="btnBindMaterial-rl" class="btn btn-primary">✅ 재질 적용</button>
+                        </div>
+                    </div>
+                </aside>
+            </main>
+        </div>
 
         <!-- 푸터 -->
         <footer class="footer">
