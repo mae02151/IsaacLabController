@@ -20,6 +20,7 @@ from isaac_lab_controller.adapters import (
 )
 from isaac_lab_controller.adapters.object_adapter import ObjectInfo
 from isaac_lab_controller.adapters.material_adapter import MaterialInfo
+from isaac_lab_controller.examples.digital_twin.cardboard_material import CardboardMaterial
 
 
 class DigitalTwinCameraAdapter(CameraAdapter):
@@ -546,19 +547,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             self._counter += 1
             
             if target_type == "random_box":
-                # 랜덤 택배 박스 생성
-                box_config = self._generate_random_box_config()
-                cfg = self.sim_utils.CuboidCfg(
-                    size=box_config["size"],
-                    rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
-                    mass_props=self.sim_utils.MassPropertiesCfg(mass=box_config["mass"]),
-                    collision_props=self.sim_utils.CollisionPropertiesCfg(),
-                    visual_material=self.sim_utils.PreviewSurfaceCfg(
-                        diffuse_color=box_config["color"]
-                    ),
-                )
-                self.sim_utils.spawn_cuboid(new_prim_path, cfg)
-                
+                # 랜덤 택배 박스 생성 (USD 에셋 우선, 큐보이드 폴백)
+                box_config = CardboardMaterial.generate_config()
+                CardboardMaterial.spawn(new_prim_path, self.sim_utils, box_config)
+
                 # 새 물체 정보 저장
                 new_obj = ObjectInfo(
                     id=object_id,  # 같은 ID 유지
@@ -579,37 +571,6 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             print(f"물체 변환 오류: {e}")
             traceback.print_exc()
     
-    def _generate_random_box_config(self) -> Dict[str, Any]:
-        """랜덤 택배 박스 설정 생성"""
-        import random
-        
-        # 크기 범위 (미터)
-        width = random.uniform(0.15, 0.5)   # 가로
-        depth = random.uniform(0.1, 0.4)    # 세로
-        height = random.uniform(0.1, 0.35)  # 높이
-        
-        # 갈색 계열 색상 (택배 박스 느낌)
-        brown_colors = [
-            (0.72, 0.53, 0.35),  # 카드보드 브라운
-            (0.65, 0.45, 0.28),  # 진한 갈색
-            (0.78, 0.60, 0.40),  # 밝은 갈색
-            (0.58, 0.42, 0.25),  # 어두운 갈색
-            (0.70, 0.55, 0.38),  # 중간 갈색
-            (0.82, 0.65, 0.45),  # 연한 갈색
-        ]
-        color = random.choice(brown_colors)
-        
-        # 질량 (크기에 비례)
-        volume = width * depth * height
-        mass = volume * 100  # 약 100kg/m³ 밀도
-        
-        return {
-            "size": (width, depth, height),
-            "color": color,
-            "mass": max(0.1, mass),  # 최소 0.1kg
-        }
-
-
 class DigitalTwinMaterialAdapter(MaterialAdapter):
     """
     IsaacLab 재질 관리 어댑터
