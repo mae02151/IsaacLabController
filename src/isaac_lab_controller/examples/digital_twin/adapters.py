@@ -36,7 +36,7 @@ class DigitalTwinCameraAdapter(CameraAdapter):
         camera: IsaacLab CameraCfg로 생성된 카메라 센서
     """
     
-    def __init__(self, camera, device: str = "cuda:0", target_fps: int = 30, jpeg_quality: int = 85):
+    def __init__(self, camera, device: str = "cuda:0", target_fps: int = 60, jpeg_quality: int = 75):
         self.camera = camera
         self.device = device
         self._current_eye = [1.5, 0.0, 0.6]
@@ -217,6 +217,7 @@ class DigitalTwinCameraAdapter(CameraAdapter):
         target_fps에 따라 프레임 캡처를 스킵하여 불필요한 GPU→CPU 복사를 줄입니다.
         """
         import time
+        import torch
 
         now = time.monotonic()
         if (now - self._last_frame_time) < self._frame_interval:
@@ -224,6 +225,15 @@ class DigitalTwinCameraAdapter(CameraAdapter):
         self._last_frame_time = now
 
         try:
+            # CUDA 에러 상태 클리어 (다른 모듈의 CUDA 에러가 남아있을 수 있음)
+            if torch.cuda.is_available():
+                torch.cuda.current_device()  # CUDA 컨텍스트 보장
+                try:
+                    torch.cuda.synchronize()
+                except RuntimeError:
+                    # CUDA 에러 상태 클리어
+                    pass
+
             # 카메라 데이터 가져오기 (CUDA 텐서)
             rgb_tensor = self.camera.data.output["rgb"][0]  # (H, W, 4)
             rgb_np = rgb_tensor.cpu().numpy().astype(np.uint8)
@@ -239,9 +249,9 @@ class DigitalTwinCameraAdapter(CameraAdapter):
             with self._frame_lock:
                 self._cached_frame = frame_bytes
                 self._frame_ready = True
-                
+
         except Exception as e:
-            print(f"프레임 업데이트 오류: {e}")
+            print(f"[CameraAdapter] 프레임 업데이트 오류: {e}")
     
     def get_frame(self, format: str = "jpeg") -> bytes:
         """
@@ -853,6 +863,12 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         self._original_stiffness = self.robot.root_physx_view.get_dof_stiffnesses().clone()
         self._original_damping = self.robot.root_physx_view.get_dof_dampings().clone()
 
+        # 관절 상태 텐서 미리 할당 (매 프레임 재사용하여 CUDA 할당 부하 감소)
+        import torch
+        num_envs = 1
+        self._joint_pos_buffer = torch.zeros((num_envs, robot.num_joints), device=self.device)
+        self._joint_vel_buffer = torch.zeros((num_envs, robot.num_joints), device=self.device)
+
         print(f"[RobotAdapter] 초기화: joints={robot.joint_names}")
         print(f"[RobotAdapter] arm_indices={self._arm_joint_indices}, gripper_idx={self._gripper_joint_idx}")
         print(f"[RobotAdapter] 원본 stiffness={self._original_stiffness}")
@@ -930,25 +946,23 @@ class DigitalTwinRobotAdapter(RobotAdapter):
 
     def _execute_set_joints(self, positions: List[float]) -> None:
         """실제 관절 위치 적용 (메인 스레드에서 실행)"""
-        import torch
-
         try:
-            num_envs = 1
-            joint_pos = torch.zeros((num_envs, self.robot.num_joints), device=self.device)
-            joint_vel = torch.zeros_like(joint_pos)
+            # 미리 할당된 버퍼 재사용 (CUDA 텐서 할당 최소화)
+            self._joint_pos_buffer.zero_()
+            self._joint_vel_buffer.zero_()
 
             # arm 관절 설정
             for i, idx in enumerate(self._arm_joint_indices):
                 if i < len(positions):
-                    joint_pos[:, idx] = positions[i]
+                    self._joint_pos_buffer[:, idx] = positions[i]
 
             # gripper 설정
             if len(positions) > 4:
-                joint_pos[:, self._gripper_joint_idx] = positions[4]
+                self._joint_pos_buffer[:, self._gripper_joint_idx] = positions[4]
 
             # 관절 상태 직접 설정 (PhysX 관절 위치/속도 텔레포트)
             # 텔레오프 중에는 PD 게인=0이므로 sim.step()에서 되돌려지지 않음
-            self.robot.write_joint_state_to_sim(joint_pos, joint_vel)
+            self.robot.write_joint_state_to_sim(self._joint_pos_buffer, self._joint_vel_buffer)
 
             with self._joint_lock:
                 self._current_joint_positions = list(positions[:5])
@@ -994,8 +1008,9 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         # write_joint_state_to_sim()으로 설정한 위치가 유지됨
         import torch
         zeros = torch.zeros_like(self._original_stiffness)
-        self.robot.root_physx_view.set_dof_stiffnesses(zeros)
-        self.robot.root_physx_view.set_dof_dampings(zeros)
+        indices = torch.tensor([0], dtype=torch.long, device="cpu")
+        self.robot.root_physx_view.set_dof_stiffnesses(zeros.cpu(), indices)
+        self.robot.root_physx_view.set_dof_dampings(zeros.cpu(), indices)
         print(f"[RobotAdapter] PD 게인 비활성화 (stiffness=0, damping=0)")
         print(f"[RobotAdapter] 텔레오퍼레이션 시작: mode={mode}")
 
@@ -1007,8 +1022,10 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         self._ros2_connected = False
 
         # PD 컨트롤러 복원 (원본 stiffness/damping)
-        self.robot.root_physx_view.set_dof_stiffnesses(self._original_stiffness)
-        self.robot.root_physx_view.set_dof_dampings(self._original_damping)
+        import torch
+        indices = torch.tensor([0], dtype=torch.long, device="cpu")
+        self.robot.root_physx_view.set_dof_stiffnesses(self._original_stiffness.cpu(), indices)
+        self.robot.root_physx_view.set_dof_dampings(self._original_damping.cpu(), indices)
         print("[RobotAdapter] PD 게인 복원")
         print("[RobotAdapter] 텔레오퍼레이션 중지")
 

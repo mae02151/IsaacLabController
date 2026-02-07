@@ -481,13 +481,16 @@ class App {
         this.stopJointPolling();  // 기존 폴링 중지
         this.jointPollingInterval = setInterval(async () => {
             try {
-                const result = await this.api.getRobotJoints();
+                // 관절 상태 + 텔레오프 상태를 병렬 요청 (ZMQ 경합 시간 감소)
+                const [result, status] = await Promise.all([
+                    this.api.getRobotJoints(),
+                    this.api.getTeleopStatus()
+                ]);
+
                 if (result.success && result.data) {
                     this.updateJointDisplay(result.data.positions);
                 }
 
-                // 텔레오프 상태도 업데이트
-                const status = await this.api.getTeleopStatus();
                 if (status.success && status.data) {
                     if (status.data.mode === 'ros2') {
                         const ros2El = document.getElementById('ros2Status');
@@ -500,7 +503,7 @@ class App {
             } catch (e) {
                 // 폴링 오류 무시
             }
-        }, 100);  // 10Hz 폴링
+        }, 250);  // 4Hz 폴링 (ZMQ 경합 감소)
     }
 
     stopJointPolling() {
@@ -660,18 +663,29 @@ class App {
     }
 
     startStreaming() {
-        // 폴링 방식 스트리밍 (WebSocket 대안)
-        this.streamingInterval = setInterval(async () => {
-            if (!this.isStreaming) return;
+        // fetch 체이닝 방식: 이전 프레임 로드 완료 후 다음 프레임 요청
+        // setInterval + img.src 방식은 응답이 느릴 때 브라우저가 이전 로드를 취소하여 프레임이 표시되지 않음
+        this._streamingActive = true;
+
+        const fetchNextFrame = async () => {
+            if (!this._streamingActive) return;
 
             try {
-                const frameUrl = await this.api.getCameraFrame();
+                const response = await fetch(`${this.api.baseUrl}/api/camera/frame?t=${Date.now()}`);
+                if (!response.ok) throw new Error('Frame fetch failed');
 
-                // 모든 탭의 프리뷰 업데이트
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+
                 ['vla', 'rl'].forEach(suffix => {
                     const preview = document.getElementById(`previewImage-${suffix}`);
                     const overlay = document.getElementById(`previewOverlay-${suffix}`);
-                    if (preview) preview.src = frameUrl;
+                    if (preview) {
+                        // 이전 Blob URL 해제
+                        if (preview._blobUrl) URL.revokeObjectURL(preview._blobUrl);
+                        preview._blobUrl = url;
+                        preview.src = url;
+                    }
                     if (overlay) overlay.classList.add('hidden');
                 });
             } catch (e) {
@@ -679,11 +693,21 @@ class App {
                     const overlay = document.getElementById(`previewOverlay-${suffix}`);
                     if (overlay) overlay.classList.remove('hidden');
                 });
+                // 에러 시 짧은 대기 후 재시도
+                await new Promise(r => setTimeout(r, 100));
             }
-        }, 30);  // ~33 FPS (테스트용 고속)
+
+            // 다음 프레임 즉시 요청 (rAF는 ~16ms 대기하므로 setTimeout(0) 사용)
+            if (this._streamingActive) {
+                setTimeout(fetchNextFrame, 0);
+            }
+        };
+
+        fetchNextFrame();
     }
 
     stopStreaming() {
+        this._streamingActive = false;
         if (this.streamingInterval) {
             clearInterval(this.streamingInterval);
             this.streamingInterval = null;
