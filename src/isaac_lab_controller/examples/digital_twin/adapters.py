@@ -300,10 +300,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         
         try:
             from pxr import Usd
-            from omni.isaac.core.utils.stage import get_current_stage
+            import omni.usd
             
             obj = self._objects[object_id]
-            stage = get_current_stage()
+            stage = omni.usd.get_context().get_stage()
             prim = stage.GetPrimAtPath(obj.prim_path)
             if prim.IsValid():
                 stage.RemovePrim(obj.prim_path)
@@ -338,10 +338,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         
         try:
             from pxr import UsdGeom
-            from omni.isaac.core.utils.stage import get_current_stage
+            import omni.usd
             
             obj = self._objects[object_id]
-            stage = get_current_stage()
+            stage = omni.usd.get_context().get_stage()
             xform = UsdGeom.Xformable(stage.GetPrimAtPath(obj.prim_path))
             
             if position:
@@ -359,12 +359,20 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
 class DigitalTwinMaterialAdapter(MaterialAdapter):
     """
     IsaacLab 재질 관리 어댑터
+    
+    스레드 안전한 명령 큐를 사용합니다.
+    - 서버 스레드: create/bind 명령을 큐에 추가
+    - 메인 스레드: process_commands()로 실제 USD 프리미티브 생성
     """
     
     def __init__(self, sim_utils_module):
         self.sim_utils = sim_utils_module
         self._materials: Dict[str, MaterialInfo] = {}
         self._counter = 0
+        
+        # 명령 큐 (스레드 안전)
+        from queue import Queue
+        self._command_queue: Queue = Queue()
     
     def create(
         self, 
@@ -374,15 +382,66 @@ class DigitalTwinMaterialAdapter(MaterialAdapter):
         metallic: float = 0.0,
         **kwargs
     ) -> str:
+        """재질 생성 요청 (큐에 추가, 즉시 목록에 표시)"""
+        material_id = str(uuid.uuid4())[:8]
+        prim_path = f"/World/Materials/mat_{self._counter}"
+        self._counter += 1
+        
+        # 색상 정규화
+        if len(color) == 3:
+            color = color + [1.0]
+        
+        # 즉시 MaterialInfo 저장 (목록 조회에 바로 보이게)
+        mat_info = MaterialInfo(
+            id=material_id,
+            name=name,
+            color=color,
+            roughness=roughness,
+            metallic=metallic,
+            prim_path=prim_path,
+        )
+        self._materials[material_id] = mat_info
+        
+        # 실제 USD 생성은 메인 스레드에서 처리
+        self._command_queue.put(('create', material_id, name, color, roughness, metallic, prim_path, kwargs))
+        print(f"[DEBUG] 재질 생성 큐에 추가: {material_id} ({name})")
+        return material_id
+    
+    def bind(self, object_id: str, material_id: str) -> bool:
+        """재질 바인딩 요청 (큐에 추가)"""
+        self._command_queue.put(('bind', object_id, material_id))
+        print(f"[DEBUG] 재질 바인딩 큐에 추가: {object_id} <- {material_id}")
+        return True
+    
+    def process_commands(self) -> None:
+        """
+        메인 스레드에서 호출: 큐에 쌓인 재질 생성/바인딩 처리
+        
+        시뮬레이션 루프에서 매 프레임마다 호출해야 합니다.
+        """
+        while not self._command_queue.empty():
+            try:
+                cmd = self._command_queue.get_nowait()
+                if cmd[0] == 'create':
+                    _, material_id, name, color, roughness, metallic, prim_path, kwargs = cmd
+                    self._execute_create(material_id, name, color, roughness, metallic, prim_path, **kwargs)
+                elif cmd[0] == 'bind':
+                    self._execute_bind(cmd[1], cmd[2])
+            except Exception as e:
+                print(f"재질 명령 처리 오류: {e}")
+    
+    def _execute_create(
+        self, 
+        material_id: str,
+        name: str, 
+        color: List[float],
+        roughness: float,
+        metallic: float,
+        prim_path: str,
+        **kwargs
+    ) -> None:
+        """실제 재질 생성 (메인 스레드에서 실행)"""
         try:
-            material_id = str(uuid.uuid4())[:8]
-            prim_path = f"/World/Materials/mat_{self._counter}"
-            self._counter += 1
-            
-            # 색상 정규화 (4채널로)
-            if len(color) == 3:
-                color = color + [1.0]
-            
             # PreviewSurface 재질 생성
             cfg = self.sim_utils.PreviewSurfaceCfg(
                 diffuse_color=tuple(color[:3]),
@@ -390,40 +449,67 @@ class DigitalTwinMaterialAdapter(MaterialAdapter):
                 metallic=metallic,
             )
             self.sim_utils.spawn_preview_surface(prim_path, cfg)
-            
-            # 재질 정보 저장
-            mat_info = MaterialInfo(
-                id=material_id,
-                name=name,
-                color=color,
-                roughness=roughness,
-                metallic=metallic,
-                prim_path=prim_path,
-            )
-            self._materials[material_id] = mat_info
-            
-            return material_id
+            print(f"[DEBUG] 재질 USD 생성 완료: {material_id} at {prim_path}")
             
         except Exception as e:
             print(f"재질 생성 오류: {e}")
-            raise
     
-    def bind(self, object_id: str, material_id: str) -> bool:
+    def _execute_bind(self, object_id: str, material_id: str) -> None:
+        """실제 재질 바인딩 (메인 스레드에서 실행)"""
         if material_id not in self._materials:
-            return False
+            print(f"재질을 찾을 수 없음: {material_id}")
+            return
         
         try:
-            from isaac_lab.sim.utils import bind_visual_material
+            from pxr import UsdShade, UsdGeom, Usd
+            import omni.usd
             
             mat = self._materials[material_id]
-            # object_id를 prim_path로 변환 필요
-            # 실제 구현에서는 ObjectAdapter와 연동
             
-            # bind_visual_material(object_prim_path, mat.prim_path)
-            return True
+            # ObjectAdapter에서 물체의 prim_path 가져오기
+            if hasattr(self, '_object_adapter') and self._object_adapter:
+                obj = self._object_adapter.get_object(object_id)
+                if obj is None:
+                    print(f"물체를 찾을 수 없음: {object_id}")
+                    return
+                object_prim_path = obj.prim_path
+            else:
+                # ObjectAdapter가 없으면 object_id를 prim_path로 사용
+                object_prim_path = object_id
+            
+            # USD Material 바인딩 (IsaacLab 호환 방식)
+            stage = omni.usd.get_context().get_stage()
+            object_prim = stage.GetPrimAtPath(object_prim_path)
+            material_prim = stage.GetPrimAtPath(mat.prim_path)
+            
+            if not object_prim.IsValid():
+                print(f"유효하지 않은 object prim: {object_prim_path}")
+                return
+            if not material_prim.IsValid():
+                print(f"유효하지 않은 material prim: {mat.prim_path}")
+                return
+            
+            material = UsdShade.Material(material_prim)
+            
+            # 하위 geometry/mesh prim 찾기 (Usd.PrimRange 사용)
+            target_prims = []
+            for descendant in Usd.PrimRange(object_prim):
+                if descendant.IsA(UsdGeom.Mesh) or descendant.IsA(UsdGeom.Cube) or descendant.IsA(UsdGeom.Sphere):
+                    target_prims.append(descendant)
+            
+            # mesh가 없으면 루트 prim에 바인딩
+            if not target_prims:
+                target_prims = [object_prim]
+            
+            # 모든 대상에 재질 바인딩
+            for target in target_prims:
+                UsdShade.MaterialBindingAPI(target).Bind(material)
+                print(f"[DEBUG] 재질 바인딩 완료: {target.GetPath()} <- {mat.prim_path}")
+                
         except Exception as e:
+            import traceback
             print(f"재질 바인딩 오류: {e}")
-            return False
+            traceback.print_exc()
     
     def unbind(self, object_id: str) -> bool:
         # 재질 해제 구현
@@ -487,6 +573,9 @@ class DigitalTwinSceneAdapter(SceneAdapter):
         # 기타 어댑터 초기화
         self._objects = DigitalTwinObjectAdapter(scene, sim_utils_module, str(sim.device))
         self._materials = DigitalTwinMaterialAdapter(sim_utils_module)
+        
+        # MaterialAdapter가 ObjectAdapter를 참조할 수 있도록 연결
+        self._materials._object_adapter = self._objects
     
     def _discover_cameras(self) -> None:
         """InteractiveScene에서 카메라 센서 자동 탐지"""

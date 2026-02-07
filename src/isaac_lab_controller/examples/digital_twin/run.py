@@ -145,12 +145,15 @@ def main():
         # 메인 스레드에서 명령 처리 및 프레임 업데이트 (CUDA 스레드 안전성!)
         camera_adapter = adapter.get_camera_adapter()
         object_adapter = adapter.get_object_adapter()
+        material_adapter = adapter.get_material_adapter()
         
-        # 1. 큐에 쌓인 카메라/물체 명령 처리 (매 프레임)
+        # 1. 큐에 쌓인 카메라/물체/재질 명령 처리 (매 프레임)
         if hasattr(camera_adapter, 'process_commands'):
             camera_adapter.process_commands()
         if hasattr(object_adapter, 'process_commands'):
             object_adapter.process_commands()
+        if hasattr(material_adapter, 'process_commands'):
+            material_adapter.process_commands()
         
         # 2. 프레임 캡처 (매 2스텝마다)
         if step_count % 2 == 0:

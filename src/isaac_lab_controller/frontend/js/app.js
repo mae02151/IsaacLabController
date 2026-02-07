@@ -2,10 +2,6 @@
  * IsaacLab Controller 메인 앱
  */
 
-document.addEventListener('DOMContentLoaded', () => {
-    const app = new App();
-    app.init();
-});
 
 class App {
     constructor() {
