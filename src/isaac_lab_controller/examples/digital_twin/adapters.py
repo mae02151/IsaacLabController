@@ -177,7 +177,7 @@ class DigitalTwinCameraAdapter(CameraAdapter):
 
                 self._current_eye = eye
                 self._current_target = target
-                print(f"[DEBUG] 카메라 이동 (USD API): eye={eye}, target={target}, path={resolved_path}")
+                # print(f"[DEBUG] 카메라 이동 (USD API): eye={eye}, target={target}, path={resolved_path}")
             else:
                 print(f"[ERROR] 카메라 prim을 찾을 수 없음: {resolved_path}")
                 return False
@@ -375,20 +375,26 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     self._execute_delete(cmd[1])
                 elif cmd[0] == 'transform':
                     self._execute_transform(cmd[1], cmd[2])
+                elif cmd[0] == 'set_pose':
+                    self._execute_set_pose(cmd[1], cmd[2], cmd[3])
             except Exception as e:
                 print(f"물체 명령 처리 오류: {e}")
     
     def _execute_spawn(
-        self, 
+        self,
         object_id: str,
-        obj_type: str, 
-        position: List[float], 
+        obj_type: str,
+        position: List[float],
         rotation: List[float],
         name: Optional[str] = None,
         **kwargs
     ) -> None:
         """실제 물체 생성 (메인 스레드에서 실행)"""
         try:
+            # 매니퓰레이터 영역(원점) 회피: x >= 0.5 보장
+            if position[0] < 0.5:
+                position[0] = 0.5
+
             prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
             
@@ -403,8 +409,8 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                         diffuse_color=kwargs.get("color", (0.8, 0.2, 0.2))
                     ),
                 )
-                self.sim_utils.spawn_cuboid(prim_path, cfg)
-                
+                self.sim_utils.spawn_cuboid(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+
             elif obj_type == "sphere":
                 cfg = self.sim_utils.SphereCfg(
                     radius=0.05,
@@ -415,8 +421,8 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                         diffuse_color=kwargs.get("color", (0.2, 0.8, 0.2))
                     ),
                 )
-                self.sim_utils.spawn_sphere(prim_path, cfg)
-                
+                self.sim_utils.spawn_sphere(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+
             elif obj_type == "cylinder":
                 cfg = self.sim_utils.CylinderCfg(
                     radius=0.05,
@@ -428,7 +434,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                         diffuse_color=kwargs.get("color", (0.2, 0.2, 0.8))
                     ),
                 )
-                self.sim_utils.spawn_cylinder(prim_path, cfg)
+                self.sim_utils.spawn_cylinder(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
             else:
                 print(f"지원하지 않는 물체 유형: {obj_type}")
                 return
@@ -483,32 +489,58 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         ]
     
     def set_pose(
-        self, 
-        object_id: str, 
+        self,
+        object_id: str,
         position: Optional[List[float]] = None,
         rotation: Optional[List[float]] = None
     ) -> bool:
+        """물체 위치/회전 변경 (큐에 추가)"""
         if object_id not in self._objects:
             return False
-        
+        self._command_queue.put(('set_pose', object_id, position, rotation))
+        return True
+
+    def _execute_set_pose(
+        self,
+        object_id: str,
+        position: Optional[List[float]],
+        rotation: Optional[List[float]],
+    ) -> None:
+        """실제 위치/회전 설정 (메인 스레드에서 실행)"""
+        if object_id not in self._objects:
+            return
+
         try:
-            from pxr import UsdGeom
+            from pxr import UsdGeom, Gf
             import omni.usd
-            
+
             obj = self._objects[object_id]
             stage = omni.usd.get_context().get_stage()
-            xform = UsdGeom.Xformable(stage.GetPrimAtPath(obj.prim_path))
-            
+            prim = stage.GetPrimAtPath(obj.prim_path)
+            if not prim.IsValid():
+                print(f"[ERROR] set_pose: prim을 찾을 수 없음: {obj.prim_path}")
+                return
+
+            xform = UsdGeom.Xformable(prim)
+            xform.ClearXformOpOrder()
+
             if position:
-                obj.position = position
-                # USD API로 위치 설정
+                # 매니퓰레이터 영역 회피: x >= 0.5
+                pos = list(position)
+                if pos[0] < 0.5:
+                    pos[0] = 0.5
+                translate_op = xform.AddTranslateOp()
+                translate_op.Set(Gf.Vec3d(pos[0], pos[1], pos[2]))
+                obj.position = pos
+
             if rotation:
+                orient_op = xform.AddOrientOp()
+                orient_op.Set(Gf.Quatd(rotation[0], rotation[1], rotation[2], rotation[3]))
                 obj.rotation = rotation
-                
-            return True
+
+            print(f"[DEBUG] 물체 위치 변경: {object_id} -> pos={position}, rot={rotation}")
         except Exception as e:
             print(f"위치 설정 오류: {e}")
-            return False
     
     def transform(self, object_id: str, target_type: str = "random_box") -> bool:
         """물체를 다른 물체로 변환 (큐에 추가)"""
@@ -531,9 +563,13 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             
             # 1. 기존 물체 정보 저장
             old_obj = self._objects[object_id]
-            old_position = old_obj.position
+            old_position = list(old_obj.position)  # 수정 가능하도록 리스트 복사
             old_rotation = old_obj.rotation
             old_prim_path = old_obj.prim_path
+
+            # 매니퓰레이터 영역(원점) 회피: x >= 0.5 보장
+            if old_position[0] < 0.5:
+                old_position[0] = 0.5
             
             # 2. 기존 물체 삭제
             stage = omni.usd.get_context().get_stage()
@@ -549,7 +585,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             if target_type == "random_box":
                 # 랜덤 택배 박스 생성 (USD 에셋 우선, 큐보이드 폴백)
                 box_config = CardboardMaterial.generate_config()
-                CardboardMaterial.spawn(new_prim_path, self.sim_utils, box_config)
+                CardboardMaterial.spawn(
+                    new_prim_path, self.sim_utils, box_config,
+                    translation=tuple(old_position), orientation=tuple(old_rotation),
+                )
 
                 # 새 물체 정보 저장
                 new_obj = ObjectInfo(

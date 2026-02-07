@@ -12,7 +12,7 @@
 """
 
 import random
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
 
 
 class CardboardMaterial:
@@ -60,7 +60,14 @@ class CardboardMaterial:
         }
 
     @classmethod
-    def spawn(cls, prim_path: str, sim_utils, config: Dict[str, Any]) -> None:
+    def spawn(
+        cls,
+        prim_path: str,
+        sim_utils,
+        config: Dict[str, Any],
+        translation: Optional[Tuple[float, float, float]] = None,
+        orientation: Optional[Tuple[float, float, float, float]] = None,
+    ) -> None:
         """
         택배 박스 스폰 (USD 에셋 우선, 폴백 큐보이드)
 
@@ -68,16 +75,18 @@ class CardboardMaterial:
             prim_path: USD 경로
             sim_utils: isaaclab.sim 모듈
             config: generate_config()로 생성된 설정
+            translation: 스폰 위치 (x, y, z)
+            orientation: 스폰 회전 (w, x, y, z)
         """
         # 1순위: NVIDIA Nucleus 텍스처 USD 에셋
-        if cls._try_spawn_usd_asset(prim_path, sim_utils, config):
+        if cls._try_spawn_usd_asset(prim_path, sim_utils, config, translation, orientation):
             return
 
         # 2순위: PreviewSurface 큐보이드 (roughness 최적화)
-        cls._spawn_cuboid_fallback(prim_path, sim_utils, config)
+        cls._spawn_cuboid_fallback(prim_path, sim_utils, config, translation, orientation)
 
     @classmethod
-    def _try_spawn_usd_asset(cls, prim_path: str, sim_utils, config) -> bool:
+    def _try_spawn_usd_asset(cls, prim_path: str, sim_utils, config, translation=None, orientation=None) -> bool:
         """NVIDIA Nucleus USD 박스 에셋으로 스폰 시도"""
         try:
             from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
@@ -95,7 +104,7 @@ class CardboardMaterial:
                 mass_props=sim_utils.MassPropertiesCfg(mass=config["mass"]),
                 collision_props=sim_utils.CollisionPropertiesCfg(),
             )
-            sim_utils.spawn_from_usd(prim_path, cfg)
+            sim_utils.spawn_from_usd(prim_path, cfg, translation=translation, orientation=orientation)
 
             print(
                 f"[CardboardMaterial] USD 에셋 스폰: {prim_path} "
@@ -108,7 +117,7 @@ class CardboardMaterial:
             return False
 
     @classmethod
-    def _spawn_cuboid_fallback(cls, prim_path: str, sim_utils, config) -> None:
+    def _spawn_cuboid_fallback(cls, prim_path: str, sim_utils, config, translation=None, orientation=None) -> None:
         """PreviewSurface 큐보이드 폴백 (spawn 시 roughness/metallic 설정)"""
         cfg = sim_utils.CuboidCfg(
             size=config["size"],
@@ -121,7 +130,7 @@ class CardboardMaterial:
                 metallic=cls.METALLIC,
             ),
         )
-        sim_utils.spawn_cuboid(prim_path, cfg)
+        sim_utils.spawn_cuboid(prim_path, cfg, translation=translation, orientation=orientation)
 
         print(
             f"[CardboardMaterial] 큐보이드 폴백 스폰: {prim_path} "
