@@ -422,6 +422,17 @@ input[type="color"] {
     font-size: 0.75rem;
 }
 
+.object-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    width: auto;
+}
+
 .empty-message {
     text-align: center;
     color: var(--text-secondary);

@@ -246,7 +246,10 @@ class App {
                     listEl.innerHTML = this.objects.map(obj => `
                         <div class="object-item">
                             <span>📦 ${obj.name || obj.id}</span>
-                            <button class="btn btn-danger" onclick="app.deleteObject('${obj.id}')">🗑️</button>
+                            <div class="object-actions">
+                                <button class="btn btn-secondary btn-sm" onclick="app.transformObject('${obj.id}')" title="택배 박스로 변환">🔄</button>
+                                <button class="btn btn-danger btn-sm" onclick="app.deleteObject('${obj.id}')" title="삭제">🗑️</button>
+                            </div>
                         </div>
                     `).join('');
                 }
@@ -263,6 +266,16 @@ class App {
         const result = await this.api.deleteObject(objectId);
         if (result.success) {
             await this.refreshObjects();
+        }
+    }
+
+    async transformObject(objectId) {
+        const result = await this.api.transformObject(objectId);
+        if (result.success) {
+            console.log('물체 변환 완료:', objectId);
+            await this.refreshObjects();
+        } else {
+            alert('물체 변환 실패');
         }
     }
 

@@ -171,3 +171,23 @@ async def update_object_pose(request: Request, object_id: str, body: PoseUpdateR
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{object_id}/transform")
+async def transform_object(request: Request, object_id: str):
+    """
+    물체를 랜덤 택배 박스로 변환
+    
+    기존 물체를 삭제하고 같은 위치에 랜덤 크기/색상의 택배 박스를 생성합니다.
+    """
+    objects = request.app.state.objects
+    try:
+        success = objects.transform(object_id, "random_box")
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Object not found: {object_id}")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

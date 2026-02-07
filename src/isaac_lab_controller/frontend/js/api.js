@@ -103,6 +103,10 @@ class IsaacLabAPI {
         return this.patch(`/api/objects/${objectId}/pose`, { position, rotation });
     }
 
+    async transformObject(objectId) {
+        return this.post(`/api/objects/${objectId}/transform`);
+    }
+
     // ===== Materials API =====
 
     async listMaterials() {

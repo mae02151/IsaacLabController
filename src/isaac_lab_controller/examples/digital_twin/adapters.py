@@ -265,6 +265,8 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     self._execute_spawn(object_id, obj_type, position, rotation, name, **kwargs)
                 elif cmd[0] == 'delete':
                     self._execute_delete(cmd[1])
+                elif cmd[0] == 'transform':
+                    self._execute_transform(cmd[1], cmd[2])
             except Exception as e:
                 print(f"물체 명령 처리 오류: {e}")
     
@@ -399,6 +401,106 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         except Exception as e:
             print(f"위치 설정 오류: {e}")
             return False
+    
+    def transform(self, object_id: str, target_type: str = "random_box") -> bool:
+        """물체를 다른 물체로 변환 (큐에 추가)"""
+        if object_id not in self._objects:
+            return False
+        self._command_queue.put(('transform', object_id, target_type))
+        print(f"[DEBUG] 물체 변환 큐에 추가: {object_id} -> {target_type}")
+        return True
+    
+    def _execute_transform(self, object_id: str, target_type: str) -> None:
+        """실제 변환 실행: 기존 물체 삭제 후 같은 위치에 새 물체 생성"""
+        if object_id not in self._objects:
+            print(f"[DEBUG] 변환할 물체를 찾을 수 없음: {object_id}")
+            return
+        
+        try:
+            from pxr import Usd
+            import omni.usd
+            import random
+            
+            # 1. 기존 물체 정보 저장
+            old_obj = self._objects[object_id]
+            old_position = old_obj.position
+            old_rotation = old_obj.rotation
+            old_prim_path = old_obj.prim_path
+            
+            # 2. 기존 물체 삭제
+            stage = omni.usd.get_context().get_stage()
+            prim = stage.GetPrimAtPath(old_prim_path)
+            if prim.IsValid():
+                stage.RemovePrim(old_prim_path)
+            del self._objects[object_id]
+            
+            # 3. 새 물체 생성 (같은 위치)
+            new_prim_path = f"/World/DynamicObjects/obj_{self._counter}"
+            self._counter += 1
+            
+            if target_type == "random_box":
+                # 랜덤 택배 박스 생성
+                box_config = self._generate_random_box_config()
+                cfg = self.sim_utils.CuboidCfg(
+                    size=box_config["size"],
+                    rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
+                    mass_props=self.sim_utils.MassPropertiesCfg(mass=box_config["mass"]),
+                    collision_props=self.sim_utils.CollisionPropertiesCfg(),
+                    visual_material=self.sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=box_config["color"]
+                    ),
+                )
+                self.sim_utils.spawn_cuboid(new_prim_path, cfg)
+                
+                # 새 물체 정보 저장
+                new_obj = ObjectInfo(
+                    id=object_id,  # 같은 ID 유지
+                    name=f"택배박스_{self._counter}",
+                    obj_type="random_box",
+                    position=old_position,
+                    rotation=old_rotation,
+                    prim_path=new_prim_path,
+                )
+                self._objects[object_id] = new_obj
+                
+                print(f"[DEBUG] 물체 변환 완료: {object_id} -> 택배박스 (크기: {box_config['size']})")
+            else:
+                print(f"지원하지 않는 변환 유형: {target_type}")
+                
+        except Exception as e:
+            import traceback
+            print(f"물체 변환 오류: {e}")
+            traceback.print_exc()
+    
+    def _generate_random_box_config(self) -> Dict[str, Any]:
+        """랜덤 택배 박스 설정 생성"""
+        import random
+        
+        # 크기 범위 (미터)
+        width = random.uniform(0.15, 0.5)   # 가로
+        depth = random.uniform(0.1, 0.4)    # 세로
+        height = random.uniform(0.1, 0.35)  # 높이
+        
+        # 갈색 계열 색상 (택배 박스 느낌)
+        brown_colors = [
+            (0.72, 0.53, 0.35),  # 카드보드 브라운
+            (0.65, 0.45, 0.28),  # 진한 갈색
+            (0.78, 0.60, 0.40),  # 밝은 갈색
+            (0.58, 0.42, 0.25),  # 어두운 갈색
+            (0.70, 0.55, 0.38),  # 중간 갈색
+            (0.82, 0.65, 0.45),  # 연한 갈색
+        ]
+        color = random.choice(brown_colors)
+        
+        # 질량 (크기에 비례)
+        volume = width * depth * height
+        mass = volume * 100  # 약 100kg/m³ 밀도
+        
+        return {
+            "size": (width, depth, height),
+            "color": color,
+            "mass": max(0.1, mass),  # 최소 0.1kg
+        }
 
 
 class DigitalTwinMaterialAdapter(MaterialAdapter):
