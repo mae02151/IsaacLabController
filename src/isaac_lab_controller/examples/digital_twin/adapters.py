@@ -747,8 +747,14 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         from queue import Queue
         self._command_queue: Queue = Queue()
 
+        # 원본 PD 게인 저장 (텔레오프 시 비활성화용)
+        self._original_stiffness = self.robot.root_physx_view.get_dof_stiffnesses().clone()
+        self._original_damping = self.robot.root_physx_view.get_dof_dampings().clone()
+
         print(f"[RobotAdapter] 초기화: joints={robot.joint_names}")
         print(f"[RobotAdapter] arm_indices={self._arm_joint_indices}, gripper_idx={self._gripper_joint_idx}")
+        print(f"[RobotAdapter] 원본 stiffness={self._original_stiffness}")
+        print(f"[RobotAdapter] 원본 damping={self._original_damping}")
 
     def get_joint_names(self) -> List[str]:
         return self.ARM_JOINT_NAMES + [self.GRIPPER_JOINT_NAME]
@@ -838,6 +844,8 @@ class DigitalTwinRobotAdapter(RobotAdapter):
             if len(positions) > 4:
                 joint_pos[:, self._gripper_joint_idx] = positions[4]
 
+            # 관절 상태 직접 설정 (PhysX 관절 위치/속도 텔레포트)
+            # 텔레오프 중에는 PD 게인=0이므로 sim.step()에서 되돌려지지 않음
             self.robot.write_joint_state_to_sim(joint_pos, joint_vel)
 
             with self._joint_lock:
@@ -878,6 +886,15 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         self._teleop_mode = mode
         self._teleop_running = True
         self._demo_time = 0.0
+
+        # PD 컨트롤러 비활성화 (stiffness=0, damping=0)
+        # 이렇게 하면 sim.step()에서 PD 힘이 발생하지 않아
+        # write_joint_state_to_sim()으로 설정한 위치가 유지됨
+        import torch
+        zeros = torch.zeros_like(self._original_stiffness)
+        self.robot.root_physx_view.set_dof_stiffnesses(zeros)
+        self.robot.root_physx_view.set_dof_dampings(zeros)
+        print(f"[RobotAdapter] PD 게인 비활성화 (stiffness=0, damping=0)")
         print(f"[RobotAdapter] 텔레오퍼레이션 시작: mode={mode}")
 
     def _execute_stop_teleop(self) -> None:
@@ -886,6 +903,11 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         if self._ros2_bridge is not None:
             self._ros2_bridge = None
         self._ros2_connected = False
+
+        # PD 컨트롤러 복원 (원본 stiffness/damping)
+        self.robot.root_physx_view.set_dof_stiffnesses(self._original_stiffness)
+        self.robot.root_physx_view.set_dof_dampings(self._original_damping)
+        print("[RobotAdapter] PD 게인 복원")
         print("[RobotAdapter] 텔레오퍼레이션 중지")
 
     def _update_demo_teleop(self) -> None:

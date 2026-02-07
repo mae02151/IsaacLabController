@@ -135,31 +135,35 @@ def main():
     print("[INFO] 브라우저에서 접속하여 시뮬레이션을 제어하세요!")
 
     # 4. 시뮬레이션 루프
+    camera_adapter = adapter.get_camera_adapter()
+    object_adapter = adapter.get_object_adapter()
+    material_adapter = adapter.get_material_adapter()
+    robot_adapter = adapter.get_robot_adapter()
+
     step_count = 0
     while simulation_app.is_running():
+        # 1. 로봇 명령 처리 (sim.step 이전에 실행해야 렌더링에 반영됨)
+        if robot_adapter and hasattr(robot_adapter, 'process_commands'):
+            robot_adapter.process_commands()
+
+        # 2. 물리 시뮬레이션 + 렌더링
         sim.step()
-        
-        # 씬 업데이트 (센서 데이터 갱신 - 매우 중요!)
+
+        # 3. 씬 업데이트 (센서 데이터 갱신)
         scene.update(sim.get_physics_dt())
-        
-        # 메인 스레드에서 명령 처리 및 프레임 업데이트 (CUDA 스레드 안전성!)
-        camera_adapter = adapter.get_camera_adapter()
-        object_adapter = adapter.get_object_adapter()
-        material_adapter = adapter.get_material_adapter()
-        
-        # 1. 큐에 쌓인 카메라/물체/재질 명령 처리 (매 프레임)
+
+        # 4. 카메라/물체/재질 명령 처리
         if hasattr(camera_adapter, 'process_commands'):
             camera_adapter.process_commands()
         if hasattr(object_adapter, 'process_commands'):
             object_adapter.process_commands()
         if hasattr(material_adapter, 'process_commands'):
             material_adapter.process_commands()
-        
-        # 2. 프레임 캡처 (매 2스텝마다)
-        if step_count % 2 == 0:
-            if hasattr(camera_adapter, 'update_frame'):
-                camera_adapter.update_frame()
-        
+
+        # 5. 프레임 캡처
+        if hasattr(camera_adapter, 'update_frame'):
+            camera_adapter.update_frame()
+
         step_count += 1
 
     print("[INFO] 시뮬레이션 종료")

@@ -409,10 +409,6 @@ class App {
                         document.getElementById('ros2StatusBox').style.display = '';
                     }
 
-                    // 수동 제어 비활성화
-                    document.getElementById('manualJointControl').style.opacity = '0.5';
-                    document.getElementById('manualJointControl').style.pointerEvents = 'none';
-
                     // 관절 상태 폴링 시작
                     this.startJointPolling();
                 } else {
@@ -434,39 +430,12 @@ class App {
                     document.getElementById('teleopStatus').className = 'teleop-status-value';
                     document.getElementById('ros2StatusBox').style.display = 'none';
 
-                    // 수동 제어 활성화
-                    document.getElementById('manualJointControl').style.opacity = '1';
-                    document.getElementById('manualJointControl').style.pointerEvents = 'auto';
-
                     // 관절 상태 폴링 중지
                     this.stopJointPolling();
                 }
             });
         }
 
-        // 수동 관절 슬라이더
-        for (let i = 0; i < 5; i++) {
-            const slider = document.getElementById(`jointSlider-${i}`);
-            if (slider) {
-                slider.addEventListener('input', () => {
-                    const val = parseFloat(slider.value);
-                    document.getElementById(`sliderVal-${i}`).textContent = val.toFixed(i === 4 ? 3 : 2);
-                });
-            }
-        }
-
-        // 수동 관절 적용 버튼
-        const btnApplyJoints = document.getElementById('btnApplyJoints');
-        if (btnApplyJoints) {
-            btnApplyJoints.addEventListener('click', async () => {
-                const positions = [];
-                for (let i = 0; i < 5; i++) {
-                    const slider = document.getElementById(`jointSlider-${i}`);
-                    positions.push(parseFloat(slider.value));
-                }
-                await this.api.setRobotJoints(positions);
-            });
-        }
     }
 
     async loadRobotInfo() {
@@ -554,17 +523,6 @@ class App {
                 barEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
             }
 
-            // 슬라이더도 동기화 (텔레오프 중에)
-            if (this.teleopRunning) {
-                const slider = document.getElementById(`jointSlider-${i}`);
-                if (slider) {
-                    slider.value = val;
-                    const sliderValEl = document.getElementById(`sliderVal-${i}`);
-                    if (sliderValEl) {
-                        sliderValEl.textContent = val.toFixed(i === 4 ? 3 : 2);
-                    }
-                }
-            }
         }
     }
 
