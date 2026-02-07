@@ -120,13 +120,19 @@ def main():
 
     # 장면 생성
     scene = InteractiveScene(scene_cfg)
-    sim.reset()
-    
-    print("[INFO] 시뮬레이션 초기화 완료")
 
     # 3. IsaacLabController 연동
+    # 어댑터 생성 (오브젝트 풀이 sim.reset() 전에 미리 생성됨)
     adapter = DigitalTwinSceneAdapter(sim, scene, simulation_app, sim_utils)
-    
+
+    # 시뮬레이션 시작 (PhysX GPU 초기화)
+    sim.reset()
+
+    # GPU PhysX tensor view 초기화 (sim.reset() 후 필수)
+    adapter.init_physics_views()
+
+    print("[INFO] 시뮬레이션 초기화 완료")
+
     # 서버 시작 (백그라운드)
     server = ControlServer(adapter, port=8000)
     server.start_background()

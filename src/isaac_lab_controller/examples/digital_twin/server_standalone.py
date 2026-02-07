@@ -133,6 +133,12 @@ class ProxyObjectAdapter:
                                    args=[object_id],
                                    kwargs={"position": position, "rotation": rotation})
         return response.success and response.data
+    
+    def transform(self, object_id: str, target_type: str = "random_box") -> bool:
+        """물체를 다른 물체로 변환"""
+        response = self.bridge.call("object", "transform", 
+                                   args=[object_id, target_type])
+        return response.success
 
 
 class ProxyMaterialAdapter:
