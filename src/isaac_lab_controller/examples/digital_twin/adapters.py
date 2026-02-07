@@ -77,17 +77,77 @@ class DigitalTwinCameraAdapter(CameraAdapter):
             return False
     
     def _execute_set_lookat(self, eye: List[float], target: List[float]) -> bool:
-        """실제 set_lookat 실행 (메인 스레드에서 호출)"""
+        """
+        실제 set_lookat 실행 (메인 스레드에서 호출)
+        
+        Warp 호환성 문제를 피하기 위해 USD API를 직접 사용합니다.
+        """
         try:
-            eyes = torch.tensor([eye], device=self.device, dtype=torch.float32)
-            targets = torch.tensor([target], device=self.device, dtype=torch.float32)
-            self.camera.set_world_poses_from_view(eyes, targets)
+            import math
+            import omni.usd
+            from pxr import UsdGeom, Gf
+            
+            # eye -> target 방향 벡터 계산
+            dx = target[0] - eye[0]
+            dy = target[1] - eye[1]
+            dz = target[2] - eye[2]
+            
+            # 방향 벡터 정규화
+            length = math.sqrt(dx*dx + dy*dy + dz*dz)
+            if length < 1e-6:
+                print("LookAt 설정 오류: eye와 target이 너무 가깝습니다")
+                return False
+            
+            forward = Gf.Vec3d(dx/length, dy/length, dz/length)
+            up = Gf.Vec3d(0, 0, 1)  # Z-up
+            
+            # right = forward x up
+            right = forward ^ up  # Gf.Vec3d cross product
+            right_len = right.GetLength()
+            if right_len < 1e-6:
+                # forward가 up과 평행한 경우
+                up = Gf.Vec3d(0, 1, 0)
+                right = forward ^ up
+                right_len = right.GetLength()
+            right = right / right_len
+            
+            # 실제 up = right x forward
+            actual_up = right ^ forward
+            
+            # 회전 행렬 -> 쿼터니언 변환
+            # 카메라는 -Z를 바라보므로 forward를 뒤집음
+            m = Gf.Matrix3d()
+            m.SetRow(0, right)
+            m.SetRow(1, actual_up)
+            m.SetRow(2, -forward)  # 카메라는 -Z 방향을 바라봄
+            
+            rotation = Gf.Rotation(m)
+            quat = rotation.GetQuat()
+            
+            # USD Stage에서 카메라 prim 가져오기
+            stage = omni.usd.get_context().get_stage()
+            camera_prim = stage.GetPrimAtPath(self.camera.cfg.prim_path)
+            
+            if camera_prim.IsValid():
+                xform = UsdGeom.Xformable(camera_prim)
+                xform.ClearXformOpOrder()
+                
+                # 변환 설정
+                translate_op = xform.AddTranslateOp()
+                translate_op.Set(Gf.Vec3d(eye[0], eye[1], eye[2]))
+                
+                orient_op = xform.AddOrientOp()
+                orient_op.Set(Gf.Quatd(quat.GetReal(), *quat.GetImaginary()))
+            
             self._current_eye = eye
             self._current_target = target
-            print(f"[DEBUG] 카메라 이동: eye={eye}, target={target}")
+            print(f"[DEBUG] 카메라 이동 (USD API): eye={eye}, target={target}")
             return True
+            
         except Exception as e:
+            import traceback
             print(f"LookAt 설정 오류: {e}")
+            traceback.print_exc()
             return False
     
     def process_commands(self) -> None:
