@@ -13,6 +13,11 @@ class App {
         this.objects = [];
         this.materials = [];
         this.cameras = [];
+
+        // 로봇 관련 상태
+        this.robotAvailable = false;
+        this.teleopRunning = false;
+        this.jointPollingInterval = null;
     }
 
     async init() {
@@ -22,9 +27,12 @@ class App {
         this.setupObjectControls();
         this.setupMaterialControls();
         this.setupPreviewControls();
+        this.setupRLControls();
+        this.setupRobotControls();
 
         await this.loadInitialData();
         await this.loadCameras();
+        await this.loadRobotInfo();
         this.startStreaming();
         this.updateConnectionStatus(true);
     }
@@ -56,9 +64,9 @@ class App {
     // ===== 탭 네비게이션 (Camera / Objects / Materials) =====
 
     setupTabNavigation() {
-        // VLA 탭용
+        // VLA 탭용 (카메라/물체/재질)
         this.setupTabsForSection('vla');
-        // Reinforcement 탭용
+        // RL 탭용 (Train/Inference)
         this.setupTabsForSection('rl');
     }
 
@@ -83,8 +91,8 @@ class App {
     // ===== 카메라 제어 =====
 
     setupCameraControls() {
-        // VLA와 RL 모두 설정
-        ['vla', 'rl'].forEach(suffix => {
+        // VLA만 카메라 제어 설정
+        ['vla'].forEach(suffix => {
             this.setupCameraControlsForSection(suffix);
         });
     }
@@ -171,8 +179,8 @@ class App {
 
             this.cameras = result.data;
 
-            // VLA와 RL 모두 업데이트
-            ['vla', 'rl'].forEach(suffix => {
+            // VLA만 카메라 드롭다운 업데이트
+            ['vla'].forEach(suffix => {
                 const select = document.getElementById(`cameraSelect-${suffix}`);
                 if (select) {
                     select.innerHTML = this.cameras.map(cam => `
@@ -192,7 +200,7 @@ class App {
     // ===== 물체 제어 =====
 
     setupObjectControls() {
-        ['vla', 'rl'].forEach(suffix => {
+        ['vla'].forEach(suffix => {
             this.setupObjectControlsForSection(suffix);
         });
     }
@@ -234,8 +242,8 @@ class App {
 
         this.objects = result.data;
 
-        // VLA와 RL 모두 업데이트
-        ['vla', 'rl'].forEach(suffix => {
+        // VLA만 업데이트
+        ['vla'].forEach(suffix => {
             const listEl = document.getElementById(`objectList-${suffix}`);
             const targetSelect = document.getElementById(`targetObject-${suffix}`);
 
@@ -269,7 +277,7 @@ class App {
     // ===== 재질 제어 =====
 
     setupMaterialControls() {
-        ['vla', 'rl'].forEach(suffix => {
+        ['vla'].forEach(suffix => {
             this.setupMaterialControlsForSection(suffix);
         });
     }
@@ -331,7 +339,7 @@ class App {
         const result = await this.api.getPresetMaterials();
         if (!result.success) return;
 
-        ['vla', 'rl'].forEach(suffix => {
+        ['vla'].forEach(suffix => {
             const container = document.getElementById(`presetMaterials-${suffix}`);
             if (!container) return;
 
@@ -368,13 +376,274 @@ class App {
 
         this.materials = result.data;
 
-        ['vla', 'rl'].forEach(suffix => {
+        ['vla'].forEach(suffix => {
             const select = document.getElementById(`selectedMaterial-${suffix}`);
             if (select) {
                 select.innerHTML = '<option value="">재질 선택...</option>' +
                     this.materials.map(mat => `<option value="${mat.id}">${mat.name}</option>`).join('');
             }
         });
+    }
+
+    // ===== 로봇 제어 =====
+
+    setupRobotControls() {
+        // 텔레오프 시작
+        const btnStartTeleop = document.getElementById('btnStartTeleop');
+        const btnStopTeleop = document.getElementById('btnStopTeleop');
+
+        if (btnStartTeleop) {
+            btnStartTeleop.addEventListener('click', async () => {
+                const mode = document.getElementById('teleopMode').value;
+                btnStartTeleop.disabled = true;
+
+                const result = await this.api.startTeleop(mode);
+                if (result.success) {
+                    this.teleopRunning = true;
+                    btnStartTeleop.style.display = 'none';
+                    btnStopTeleop.style.display = 'block';
+                    document.getElementById('teleopStatus').textContent = mode === 'ros2' ? 'ROS2 실행 중' : 'Demo 실행 중';
+                    document.getElementById('teleopStatus').className = 'teleop-status-value running';
+
+                    if (mode === 'ros2') {
+                        document.getElementById('ros2StatusBox').style.display = '';
+                    }
+
+                    // 수동 제어 비활성화
+                    document.getElementById('manualJointControl').style.opacity = '0.5';
+                    document.getElementById('manualJointControl').style.pointerEvents = 'none';
+
+                    // 관절 상태 폴링 시작
+                    this.startJointPolling();
+                } else {
+                    btnStartTeleop.disabled = false;
+                    alert('텔레오프 시작 실패');
+                }
+            });
+        }
+
+        if (btnStopTeleop) {
+            btnStopTeleop.addEventListener('click', async () => {
+                const result = await this.api.stopTeleop();
+                if (result.success) {
+                    this.teleopRunning = false;
+                    btnStopTeleop.style.display = 'none';
+                    btnStartTeleop.style.display = 'block';
+                    btnStartTeleop.disabled = false;
+                    document.getElementById('teleopStatus').textContent = '대기 중';
+                    document.getElementById('teleopStatus').className = 'teleop-status-value';
+                    document.getElementById('ros2StatusBox').style.display = 'none';
+
+                    // 수동 제어 활성화
+                    document.getElementById('manualJointControl').style.opacity = '1';
+                    document.getElementById('manualJointControl').style.pointerEvents = 'auto';
+
+                    // 관절 상태 폴링 중지
+                    this.stopJointPolling();
+                }
+            });
+        }
+
+        // 수동 관절 슬라이더
+        for (let i = 0; i < 5; i++) {
+            const slider = document.getElementById(`jointSlider-${i}`);
+            if (slider) {
+                slider.addEventListener('input', () => {
+                    const val = parseFloat(slider.value);
+                    document.getElementById(`sliderVal-${i}`).textContent = val.toFixed(i === 4 ? 3 : 2);
+                });
+            }
+        }
+
+        // 수동 관절 적용 버튼
+        const btnApplyJoints = document.getElementById('btnApplyJoints');
+        if (btnApplyJoints) {
+            btnApplyJoints.addEventListener('click', async () => {
+                const positions = [];
+                for (let i = 0; i < 5; i++) {
+                    const slider = document.getElementById(`jointSlider-${i}`);
+                    positions.push(parseFloat(slider.value));
+                }
+                await this.api.setRobotJoints(positions);
+            });
+        }
+    }
+
+    async loadRobotInfo() {
+        try {
+            const result = await this.api.getRobotInfo();
+            if (result.success && result.data) {
+                this.robotAvailable = true;
+                const info = result.data;
+                const infoBox = document.getElementById('robotInfoBox');
+                if (infoBox) {
+                    infoBox.innerHTML = `
+                        <div class="robot-info-item"><strong>이름:</strong> ${info.name}</div>
+                        <div class="robot-info-item"><strong>관절 수:</strong> ${info.num_joints}</div>
+                        <div class="robot-info-item"><strong>관절:</strong> ${info.joint_names.join(', ')}</div>
+                    `;
+                }
+                console.log('로봇 정보 로드 완료:', info.name);
+            } else {
+                const infoBox = document.getElementById('robotInfoBox');
+                if (infoBox) {
+                    infoBox.innerHTML = '<p class="empty-message">로봇이 없습니다.</p>';
+                }
+            }
+        } catch (e) {
+            console.error('로봇 정보 로드 실패:', e);
+        }
+    }
+
+    startJointPolling() {
+        this.stopJointPolling();  // 기존 폴링 중지
+        this.jointPollingInterval = setInterval(async () => {
+            try {
+                const result = await this.api.getRobotJoints();
+                if (result.success && result.data) {
+                    this.updateJointDisplay(result.data.positions);
+                }
+
+                // 텔레오프 상태도 업데이트
+                const status = await this.api.getTeleopStatus();
+                if (status.success && status.data) {
+                    if (status.data.mode === 'ros2') {
+                        const ros2El = document.getElementById('ros2Status');
+                        if (ros2El) {
+                            ros2El.textContent = status.data.connected ? '연결됨' : '연결 대기 중...';
+                            ros2El.className = 'teleop-status-value ' + (status.data.connected ? 'connected' : 'waiting');
+                        }
+                    }
+                }
+            } catch (e) {
+                // 폴링 오류 무시
+            }
+        }, 100);  // 10Hz 폴링
+    }
+
+    stopJointPolling() {
+        if (this.jointPollingInterval) {
+            clearInterval(this.jointPollingInterval);
+            this.jointPollingInterval = null;
+        }
+    }
+
+    updateJointDisplay(positions) {
+        if (!positions) return;
+
+        // 각 관절의 리미트 정의
+        const limits = [
+            [-3.14159, 3.14159],  // joint1
+            [-1.5, 1.5],          // joint2
+            [-1.5, 1.4],          // joint3
+            [-1.7, 1.97],         // joint4
+            [-0.01, 0.019],       // gripper
+        ];
+
+        for (let i = 0; i < Math.min(positions.length, 5); i++) {
+            const val = positions[i];
+            const valEl = document.getElementById(`jointVal-${i}`);
+            const barEl = document.getElementById(`jointBar-${i}`);
+
+            if (valEl) {
+                valEl.textContent = val.toFixed(3);
+            }
+            if (barEl) {
+                const [min, max] = limits[i];
+                const pct = ((val - min) / (max - min)) * 100;
+                barEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
+            }
+
+            // 슬라이더도 동기화 (텔레오프 중에)
+            if (this.teleopRunning) {
+                const slider = document.getElementById(`jointSlider-${i}`);
+                if (slider) {
+                    slider.value = val;
+                    const sliderValEl = document.getElementById(`sliderVal-${i}`);
+                    if (sliderValEl) {
+                        sliderValEl.textContent = val.toFixed(i === 4 ? 3 : 2);
+                    }
+                }
+            }
+        }
+    }
+
+    // ===== RL (Train / Inference) 제어 =====
+
+    setupRLControls() {
+        // Train 시작
+        const btnStartTrain = document.getElementById('btnStartTrain');
+        const btnStopTrain = document.getElementById('btnStopTrain');
+        if (btnStartTrain) {
+            btnStartTrain.addEventListener('click', async () => {
+                const numEnvs = parseInt(document.getElementById('numEnvs').value) || 64;
+                btnStartTrain.disabled = true;
+                this.updateRLStatus('train', '시작 중...', 'running');
+
+                const result = await this.api.startTrain(numEnvs);
+                if (result.success) {
+                    this.updateRLStatus('train', '학습 중', 'running');
+                    btnStartTrain.style.display = 'none';
+                    btnStopTrain.style.display = 'block';
+                } else {
+                    this.updateRLStatus('train', '시작 실패', 'error');
+                    btnStartTrain.disabled = false;
+                }
+            });
+        }
+
+        if (btnStopTrain) {
+            btnStopTrain.addEventListener('click', async () => {
+                const result = await this.api.stopTrain();
+                this.updateRLStatus('train', '대기 중', '');
+                btnStopTrain.style.display = 'none';
+                const btnStart = document.getElementById('btnStartTrain');
+                btnStart.style.display = 'block';
+                btnStart.disabled = false;
+            });
+        }
+
+        // Inference 시작
+        const btnStartInference = document.getElementById('btnStartInference');
+        const btnStopInference = document.getElementById('btnStopInference');
+        if (btnStartInference) {
+            btnStartInference.addEventListener('click', async () => {
+                btnStartInference.disabled = true;
+                this.updateRLStatus('inference', '시작 중...', 'running');
+
+                const result = await this.api.startInference();
+                if (result.success) {
+                    this.updateRLStatus('inference', '추론 중', 'running');
+                    btnStartInference.style.display = 'none';
+                    btnStopInference.style.display = 'block';
+                } else {
+                    this.updateRLStatus('inference', '시작 실패', 'error');
+                    btnStartInference.disabled = false;
+                }
+            });
+        }
+
+        if (btnStopInference) {
+            btnStopInference.addEventListener('click', async () => {
+                const result = await this.api.stopInference();
+                this.updateRLStatus('inference', '대기 중', '');
+                btnStopInference.style.display = 'none';
+                const btnStart = document.getElementById('btnStartInference');
+                btnStart.style.display = 'block';
+                btnStart.disabled = false;
+            });
+        }
+    }
+
+    updateRLStatus(mode, text, statusClass) {
+        const statusEl = document.getElementById(`${mode}Status`);
+        if (statusEl) {
+            statusEl.textContent = text;
+            statusEl.className = 'rl-status-value';
+            if (statusClass) {
+                statusEl.classList.add(statusClass);
+            }
+        }
     }
 
     // ===== 미리보기 제어 =====

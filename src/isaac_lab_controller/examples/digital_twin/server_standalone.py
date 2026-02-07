@@ -180,6 +180,41 @@ class ProxyMaterialAdapter:
         return response.success and response.data
 
 
+class ProxyRobotAdapter:
+    """로봇 어댑터 프록시 - ZMQ로 시뮬레이션과 통신"""
+
+    def __init__(self, bridge: ServerBridge):
+        self.bridge = bridge
+
+    def get_joint_names(self) -> List[str]:
+        response = self.bridge.call("robot", "get_joint_names")
+        return response.data if response.success else []
+
+    def get_joint_positions(self) -> List[float]:
+        response = self.bridge.call("robot", "get_joint_positions")
+        return response.data if response.success else []
+
+    def set_joint_positions(self, positions: List[float]) -> bool:
+        response = self.bridge.call("robot", "set_joint_positions", args=[positions])
+        return response.success and response.data
+
+    def get_robot_info(self) -> Dict[str, Any]:
+        response = self.bridge.call("robot", "get_robot_info")
+        return response.data if response.success else {}
+
+    def start_teleop(self, mode: str = "demo") -> bool:
+        response = self.bridge.call("robot", "start_teleop", args=[mode])
+        return response.success and response.data
+
+    def stop_teleop(self) -> bool:
+        response = self.bridge.call("robot", "stop_teleop")
+        return response.success and response.data
+
+    def get_teleop_status(self) -> Dict[str, Any]:
+        response = self.bridge.call("robot", "get_teleop_status")
+        return response.data if response.success else {"running": False, "mode": "demo", "connected": False}
+
+
 class ProxySceneAdapter:
     """씬 어댑터 프록시 - ZMQ로 시뮬레이션과 통신"""
     
@@ -188,15 +223,19 @@ class ProxySceneAdapter:
         self.camera = ProxyCameraAdapter(bridge)
         self.objects = ProxyObjectAdapter(bridge)
         self.materials = ProxyMaterialAdapter(bridge)
-    
+        self.robot = ProxyRobotAdapter(bridge)
+
     def get_camera_adapter(self):
         return self.camera
-    
+
     def get_object_adapter(self):
         return self.objects
-    
+
     def get_material_adapter(self):
         return self.materials
+
+    def get_robot_adapter(self):
+        return self.robot
     
     def is_running(self) -> bool:
         response = self.bridge.call("scene", "is_running")

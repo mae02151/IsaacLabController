@@ -17,6 +17,7 @@ from isaac_lab_controller.adapters import (
     CameraAdapter,
     ObjectAdapter,
     MaterialAdapter,
+    RobotAdapter,
 )
 from isaac_lab_controller.adapters.object_adapter import ObjectInfo
 from isaac_lab_controller.adapters.material_adapter import MaterialInfo
@@ -694,6 +695,235 @@ class DigitalTwinMaterialAdapter(MaterialAdapter):
         return True
 
 
+class DigitalTwinRobotAdapter(RobotAdapter):
+    """
+    IsaacLab Articulation을 감싸는 로봇 어댑터
+
+    텔레오퍼레이션 모드:
+    - Demo 모드: 사인파 모션 생성 (테스트용)
+    - ROS2 모드: 실제 로봇의 joint_states를 ROS2로 수신하여 시뮬레이션에 적용
+
+    스레드 안전한 명령 큐를 사용합니다.
+    - 서버 스레드: start_teleop/stop_teleop/set_joint_positions 명령을 큐에 추가
+    - 메인 스레드: process_commands()로 실제 관절 상태 적용
+    """
+
+    # Open Manipulator X 관절 설정
+    ARM_JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4"]
+    GRIPPER_JOINT_NAME = "gripper_left_joint"
+    JOINT_LIMITS = {
+        "joint1": (-3.14159, 3.14159),
+        "joint2": (-1.5, 1.5),
+        "joint3": (-1.5, 1.4),
+        "joint4": (-1.7, 1.97),
+        "gripper_left_joint": (-0.01, 0.019),
+    }
+
+    def __init__(self, robot, device: str = "cuda:0"):
+        """
+        Args:
+            robot: IsaacLab Articulation 인스턴스
+            device: torch 디바이스
+        """
+        self.robot = robot
+        self.device = device
+
+        # 텔레오프 상태
+        self._teleop_running = False
+        self._teleop_mode = "demo"  # "demo" | "ros2"
+        self._ros2_connected = False
+        self._ros2_bridge = None
+        self._demo_time = 0.0
+
+        # 현재 관절 상태 (스레드 안전)
+        self._joint_lock = threading.Lock()
+        self._current_joint_positions = [0.0, -0.5, 0.5, 0.0, 0.01]  # 초기 포즈
+
+        # 관절 인덱스 매핑
+        self._arm_joint_indices = [robot.joint_names.index(name) for name in self.ARM_JOINT_NAMES]
+        self._gripper_joint_idx = robot.joint_names.index(self.GRIPPER_JOINT_NAME)
+
+        # 명령 큐 (스레드 안전)
+        from queue import Queue
+        self._command_queue: Queue = Queue()
+
+        print(f"[RobotAdapter] 초기화: joints={robot.joint_names}")
+        print(f"[RobotAdapter] arm_indices={self._arm_joint_indices}, gripper_idx={self._gripper_joint_idx}")
+
+    def get_joint_names(self) -> List[str]:
+        return self.ARM_JOINT_NAMES + [self.GRIPPER_JOINT_NAME]
+
+    def get_joint_positions(self) -> List[float]:
+        with self._joint_lock:
+            return list(self._current_joint_positions)
+
+    def set_joint_positions(self, positions: List[float]) -> bool:
+        """관절 위치 설정 요청 (큐에 추가)"""
+        self._command_queue.put(('set_joints', positions))
+        return True
+
+    def get_robot_info(self) -> Dict[str, Any]:
+        return {
+            "name": "Open Manipulator X",
+            "num_joints": 5,
+            "joint_names": self.get_joint_names(),
+            "joint_limits": self.JOINT_LIMITS,
+        }
+
+    def start_teleop(self, mode: str = "demo") -> bool:
+        """텔레오퍼레이션 시작 요청 (큐에 추가)"""
+        self._command_queue.put(('start_teleop', mode))
+        return True
+
+    def stop_teleop(self) -> bool:
+        """텔레오퍼레이션 중지 요청 (큐에 추가)"""
+        self._command_queue.put(('stop_teleop',))
+        return True
+
+    def get_teleop_status(self) -> Dict[str, Any]:
+        return {
+            "running": self._teleop_running,
+            "mode": self._teleop_mode,
+            "connected": self._ros2_connected if self._teleop_mode == "ros2" else True,
+        }
+
+    def process_commands(self) -> None:
+        """
+        메인 스레드에서 호출: 큐 처리 + 텔레오프 업데이트
+
+        시뮬레이션 루프에서 매 프레임마다 호출해야 합니다.
+        """
+        import torch
+
+        # 1. 명령 큐 처리
+        while not self._command_queue.empty():
+            try:
+                cmd = self._command_queue.get_nowait()
+                if cmd[0] == 'set_joints':
+                    self._execute_set_joints(cmd[1])
+                elif cmd[0] == 'start_teleop':
+                    self._execute_start_teleop(cmd[1])
+                elif cmd[0] == 'stop_teleop':
+                    self._execute_stop_teleop()
+            except Exception as e:
+                print(f"[RobotAdapter] 명령 처리 오류: {e}")
+
+        # 2. 텔레오프 업데이트
+        if not self._teleop_running:
+            return
+
+        try:
+            if self._teleop_mode == "demo":
+                self._update_demo_teleop()
+            elif self._teleop_mode == "ros2":
+                self._update_ros2_teleop()
+        except Exception as e:
+            print(f"[RobotAdapter] 텔레오프 업데이트 오류: {e}")
+
+    def _execute_set_joints(self, positions: List[float]) -> None:
+        """실제 관절 위치 적용 (메인 스레드에서 실행)"""
+        import torch
+
+        try:
+            num_envs = 1
+            joint_pos = torch.zeros((num_envs, self.robot.num_joints), device=self.device)
+            joint_vel = torch.zeros_like(joint_pos)
+
+            # arm 관절 설정
+            for i, idx in enumerate(self._arm_joint_indices):
+                if i < len(positions):
+                    joint_pos[:, idx] = positions[i]
+
+            # gripper 설정
+            if len(positions) > 4:
+                joint_pos[:, self._gripper_joint_idx] = positions[4]
+
+            self.robot.write_joint_state_to_sim(joint_pos, joint_vel)
+
+            with self._joint_lock:
+                self._current_joint_positions = list(positions[:5])
+
+        except Exception as e:
+            print(f"[RobotAdapter] 관절 설정 오류: {e}")
+
+    def _execute_start_teleop(self, mode: str) -> None:
+        """텔레오퍼레이션 시작 (메인 스레드에서 실행)"""
+        if mode == "ros2":
+            try:
+                # ROS2 브릿지 동적 임포트
+                import sys
+                teleop_path = "/home/jwson/IsaacLab/scripts/teleop/open_manipulator_x"
+                if teleop_path not in sys.path:
+                    sys.path.insert(0, teleop_path)
+
+                from ros2_bridge import OpenManipulatorRos2Bridge, ROS2_AVAILABLE
+                if not ROS2_AVAILABLE:
+                    print("[RobotAdapter] ROS2를 사용할 수 없습니다. demo 모드로 전환합니다.")
+                    mode = "demo"
+                else:
+                    from config import OpenManipulatorConfig, Ros2Config
+                    robot_cfg = OpenManipulatorConfig()
+                    ros2_cfg = Ros2Config()
+                    self._ros2_bridge = OpenManipulatorRos2Bridge(
+                        robot_cfg=robot_cfg,
+                        ros2_cfg=ros2_cfg,
+                        device=self.device
+                    )
+                    self._ros2_connected = False
+                    print("[RobotAdapter] ROS2 브릿지 초기화 완료")
+            except Exception as e:
+                print(f"[RobotAdapter] ROS2 초기화 실패: {e}, demo 모드로 전환")
+                mode = "demo"
+
+        self._teleop_mode = mode
+        self._teleop_running = True
+        self._demo_time = 0.0
+        print(f"[RobotAdapter] 텔레오퍼레이션 시작: mode={mode}")
+
+    def _execute_stop_teleop(self) -> None:
+        """텔레오퍼레이션 중지 (메인 스레드에서 실행)"""
+        self._teleop_running = False
+        if self._ros2_bridge is not None:
+            self._ros2_bridge = None
+        self._ros2_connected = False
+        print("[RobotAdapter] 텔레오퍼레이션 중지")
+
+    def _update_demo_teleop(self) -> None:
+        """데모 모드: 사인파 모션 생성 및 적용"""
+        import torch
+        import math
+
+        self._demo_time += 0.01  # ~100Hz 시뮬레이션 dt
+
+        positions = [
+            0.5 * math.sin(self._demo_time * 0.5),           # joint1
+            -0.5 + 0.3 * math.sin(self._demo_time * 0.7),    # joint2
+            0.5 + 0.2 * math.sin(self._demo_time * 0.9),     # joint3
+            0.3 * math.sin(self._demo_time * 1.1),           # joint4
+            0.01 + 0.009 * math.sin(self._demo_time * 0.3),  # gripper
+        ]
+
+        self._execute_set_joints(positions)
+
+    def _update_ros2_teleop(self) -> None:
+        """ROS2 모드: 실제 로봇 관절 상태 수신 및 적용"""
+        import torch
+
+        if self._ros2_bridge is None:
+            return
+
+        # 연결 상태 업데이트
+        self._ros2_connected = self._ros2_bridge.is_connected
+        if not self._ros2_connected:
+            return
+
+        # 관절 상태 텐서 가져오기 [j1, j2, j3, j4, gripper]
+        joint_state = self._ros2_bridge.get_joint_state_tensor()
+        positions = joint_state.cpu().tolist()
+
+        self._execute_set_joints(positions)
+
+
 class DigitalTwinSceneAdapter(SceneAdapter):
     """
     Digital Twin 환경을 위한 Scene 어댑터
@@ -714,20 +944,24 @@ class DigitalTwinSceneAdapter(SceneAdapter):
         self.scene = scene
         self.simulation_app = simulation_app
         self.sim_utils = sim_utils_module
-        
+
         # 카메라 어댑터 관리
         self._cameras: Dict[str, DigitalTwinCameraAdapter] = {}
         self._active_camera_id: str = ""
-        
+
         # scene에서 카메라 자동 탐지 및 어댑터 생성
         self._discover_cameras()
-        
+
         # 기타 어댑터 초기화
         self._objects = DigitalTwinObjectAdapter(scene, sim_utils_module, str(sim.device))
         self._materials = DigitalTwinMaterialAdapter(sim_utils_module)
-        
+
         # MaterialAdapter가 ObjectAdapter를 참조할 수 있도록 연결
         self._materials._object_adapter = self._objects
+
+        # 로봇 어댑터 (선택적 - scene에 robot이 있으면 생성)
+        self._robot: Optional[DigitalTwinRobotAdapter] = None
+        self._discover_robot()
     
     def _discover_cameras(self) -> None:
         """InteractiveScene에서 카메라 센서 자동 탐지"""
@@ -759,7 +993,27 @@ class DigitalTwinSceneAdapter(SceneAdapter):
                 print("[INFO] 기본 카메라 사용: camera")
             except KeyError:
                 print("[WARNING] 씬에서 카메라를 찾을 수 없습니다.")
-    
+
+    def _discover_robot(self) -> None:
+        """InteractiveScene에서 로봇(Articulation) 자동 탐지"""
+        device = str(self.sim.device)
+        try:
+            robot = self.scene["robot"]
+            # Articulation인지 확인 (joint_names 속성으로 체크)
+            if hasattr(robot, "joint_names") and hasattr(robot, "write_joint_state_to_sim"):
+                self._robot = DigitalTwinRobotAdapter(robot, device)
+                print(f"[INFO] 로봇 발견: {robot.joint_names}")
+        except (KeyError, TypeError, AttributeError):
+            print("[INFO] 씬에 로봇이 없습니다.")
+
+    def get_robot_adapter(self) -> Optional[RobotAdapter]:
+        """로봇 어댑터 반환"""
+        return self._robot
+
+    def set_robot_adapter(self, robot_adapter: DigitalTwinRobotAdapter) -> None:
+        """로봇 어댑터 수동 설정"""
+        self._robot = robot_adapter
+
     def step(self) -> None:
         self.sim.step()
     

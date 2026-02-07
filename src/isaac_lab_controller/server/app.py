@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from isaac_lab_controller.adapters.base import SceneAdapter
-from isaac_lab_controller.server.routes import camera, objects, materials
+from isaac_lab_controller.server.routes import camera, objects, materials, rl, robot
 from isaac_lab_controller.server.websocket_handler import WebSocketHandler
 from isaac_lab_controller.utils.config import load_config, ControllerConfig
 
@@ -55,17 +55,20 @@ def create_app(scene_adapter: SceneAdapter) -> FastAPI:
     app.state.camera = scene_adapter.get_camera_adapter()
     app.state.objects = scene_adapter.get_object_adapter()
     app.state.materials = scene_adapter.get_material_adapter()
-    
+    app.state.robot = scene_adapter.get_robot_adapter() if hasattr(scene_adapter, 'get_robot_adapter') else None
+
     # API 라우트 등록
     app.include_router(camera.router, prefix="/api/camera", tags=["Camera"])
     app.include_router(objects.router, prefix="/api/objects", tags=["Objects"])
     app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
-    
+    app.include_router(rl.router, prefix="/api/rl", tags=["RL"])
+    app.include_router(robot.router, prefix="/api/robot", tags=["Robot"])
+
     # 정적 파일 서빙 (Frontend)
     frontend_path = Path(__file__).parent.parent / "frontend"
     if frontend_path.exists():
         app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
-    
+
     # 헬스체크
     @app.get("/api/health")
     async def health_check():
@@ -168,17 +171,20 @@ class ControlServer:
         app.state.camera = self.scene.get_camera_adapter()
         app.state.objects = self.scene.get_object_adapter()
         app.state.materials = self.scene.get_material_adapter()
-        
+        app.state.robot = self.scene.get_robot_adapter() if hasattr(self.scene, 'get_robot_adapter') else None
+
         # API 라우트 등록
         app.include_router(camera.router, prefix="/api/camera", tags=["Camera"])
         app.include_router(objects.router, prefix="/api/objects", tags=["Objects"])
         app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
-        
+        app.include_router(rl.router, prefix="/api/rl", tags=["RL"])
+        app.include_router(robot.router, prefix="/api/robot", tags=["Robot"])
+
         # 정적 파일 서빙 (Frontend)
         frontend_path = Path(__file__).parent.parent / "frontend"
         if frontend_path.exists():
             app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
-        
+
         # 헬스체크
         @app.get("/api/health")
         async def health_check():
