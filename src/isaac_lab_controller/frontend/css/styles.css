@@ -78,8 +78,60 @@ body {
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* 메인 탭 메뉴 (VLA / Reinforcement) */
+.main-tab-menu {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem 2rem;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.main-tab-btn {
+    padding: 0.875rem 2rem;
+    background: transparent;
+    border: 2px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+    min-width: 150px;
+}
+
+.main-tab-btn:hover {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border-color: var(--primary-color);
+}
+
+.main-tab-btn.active {
+    background: linear-gradient(135deg, var(--primary-color), #8b5cf6);
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+}
+
+/* 메인 탭 컨텐츠 */
+.main-tab-content {
+    display: none;
+}
+
+.main-tab-content.active {
+    display: block;
 }
 
 /* 메인 컨텐츠 */
@@ -200,7 +252,7 @@ body {
     margin-bottom: 1.5rem;
 }
 
-.control-group > label {
+.control-group>label {
     display: block;
     font-size: 0.875rem;
     color: var(--text-secondary);
@@ -417,7 +469,7 @@ input[type="color"] {
     .main-content {
         flex-direction: column;
     }
-    
+
     .control-panel {
         max-width: none;
         max-height: none;
