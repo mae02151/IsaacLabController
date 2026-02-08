@@ -75,11 +75,6 @@ def main():
         prim_path="/World/envs/env_.*/Robot"
     )
 
-    # 로봇 설정
-    scene_cfg.robot = OPEN_MANIPULATOR_X_GRIPPER_CFG.replace(
-        prim_path="/World/envs/env_.*/Robot"
-    )
-
     # 2. 팔레트 배치 (pallet_1에 연두색 적용)
     spawn_pallets(highlight_index=1)
 

@@ -26,10 +26,12 @@ class App {
         this.setupMaterialControls();
         this.setupPreviewControls();
         this.setupRobotControls();
+        this.setupDataCollectionControls();
 
         await this.loadInitialData();
         await this.loadCameras();
         await this.loadRobotInfo();
+        await this.loadDataCollectionStatus();
         this.startStreaming();
         this.updateConnectionStatus(true);
     }
@@ -574,6 +576,196 @@ class App {
                 barEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
             }
 
+        }
+    }
+
+    // ===== 데이터 수집 제어 =====
+
+    setupDataCollectionControls() {
+        const btnStart = document.getElementById('btnDataStart');
+        const btnStop = document.getElementById('btnDataStop');
+        const btnDiscard = document.getElementById('btnDataDiscard');
+        const btnFinish = document.getElementById('btnDataFinish');
+
+        if (btnStart) {
+            btnStart.addEventListener('click', async () => {
+                const result = await this.api.dataStart();
+                if (result.success) {
+                    this.updateDataCollectionUI(true, result.episode_index, 0);
+                } else {
+                    console.warn('녹화 시작 실패:', result.message);
+                }
+            });
+        }
+
+        if (btnStop) {
+            btnStop.addEventListener('click', async () => {
+                const result = await this.api.dataStop(true);
+                if (result.success) {
+                    this.updateDataCollectionUI(true, result.next_episode, 0);
+                }
+            });
+        }
+
+        if (btnDiscard) {
+            btnDiscard.addEventListener('click', async () => {
+                const result = await this.api.dataDiscard();
+                if (result.success) {
+                    this.updateDataCollectionUI(true, result.next_episode, 0);
+                }
+            });
+        }
+
+        if (btnFinish) {
+            btnFinish.addEventListener('click', async () => {
+                if (!confirm('데이터 수집을 완료하시겠습니까?')) return;
+                const result = await this.api.dataFinish();
+                if (result.success) {
+                    this.updateDataCollectionUI(false, 0, 0);
+                    this.stopDataCollectionPolling();
+                    const statusText = document.getElementById('dcStatusText');
+                    if (statusText) statusText.textContent = '수집 완료';
+                }
+            });
+        }
+
+        // 상태 폴링 시작 (2초마다)
+        this.startDataCollectionPolling();
+    }
+
+    startDataCollectionPolling() {
+        this.stopDataCollectionPolling();
+        this._dcPollingInterval = setInterval(async () => {
+            await this.loadDataCollectionStatus();
+        }, 2000);
+    }
+
+    stopDataCollectionPolling() {
+        if (this._dcPollingInterval) {
+            clearInterval(this._dcPollingInterval);
+            this._dcPollingInterval = null;
+        }
+    }
+
+    async loadDataCollectionStatus() {
+        try {
+            const result = await this.api.getDataStatus();
+            if (result.success && result.data) {
+                this.updateDataCollectionUI(
+                    result.data.is_recording,
+                    result.data.episode_index,
+                    result.data.frame_count
+                );
+            }
+        } catch (e) {
+            // DataCollector 미등록 시 무시
+        }
+    }
+
+    updateDataCollectionUI(isRecording, episodeIndex, frameCount) {
+        const indicator = document.getElementById('dcIndicator');
+        const statusText = document.getElementById('dcStatusText');
+        const episodeInfo = document.getElementById('dcEpisodeInfo');
+        const btnStart = document.getElementById('btnDataStart');
+        const btnStop = document.getElementById('btnDataStop');
+        const btnDiscard = document.getElementById('btnDataDiscard');
+
+        if (indicator) {
+            indicator.className = 'dc-status-indicator ' + (isRecording ? 'recording' : '');
+        }
+        if (statusText) {
+            statusText.textContent = isRecording ? 'REC' : '대기 중';
+            statusText.className = 'dc-status-text ' + (isRecording ? 'recording' : '');
+        }
+        if (episodeInfo) {
+            episodeInfo.textContent = `EP ${episodeIndex} / ${frameCount} frames`;
+        }
+        if (btnStart) {
+            btnStart.disabled = isRecording;
+        }
+        if (btnStop) {
+            btnStop.disabled = !isRecording;
+        }
+        if (btnDiscard) {
+            btnDiscard.disabled = !isRecording;
+        }
+    }
+
+    // ===== RL (Train / Inference) 제어 =====
+
+    setupRLControls() {
+        // Train 시작
+        const btnStartTrain = document.getElementById('btnStartTrain');
+        const btnStopTrain = document.getElementById('btnStopTrain');
+        if (btnStartTrain) {
+            btnStartTrain.addEventListener('click', async () => {
+                const numEnvs = parseInt(document.getElementById('numEnvs').value) || 64;
+                btnStartTrain.disabled = true;
+                this.updateRLStatus('train', '시작 중...', 'running');
+
+                const result = await this.api.startTrain(numEnvs);
+                if (result.success) {
+                    this.updateRLStatus('train', '학습 중', 'running');
+                    btnStartTrain.style.display = 'none';
+                    btnStopTrain.style.display = 'block';
+                } else {
+                    this.updateRLStatus('train', '시작 실패', 'error');
+                    btnStartTrain.disabled = false;
+                }
+            });
+        }
+
+        if (btnStopTrain) {
+            btnStopTrain.addEventListener('click', async () => {
+                const result = await this.api.stopTrain();
+                this.updateRLStatus('train', '대기 중', '');
+                btnStopTrain.style.display = 'none';
+                const btnStart = document.getElementById('btnStartTrain');
+                btnStart.style.display = 'block';
+                btnStart.disabled = false;
+            });
+        }
+
+        // Inference 시작
+        const btnStartInference = document.getElementById('btnStartInference');
+        const btnStopInference = document.getElementById('btnStopInference');
+        if (btnStartInference) {
+            btnStartInference.addEventListener('click', async () => {
+                btnStartInference.disabled = true;
+                this.updateRLStatus('inference', '시작 중...', 'running');
+
+                const result = await this.api.startInference();
+                if (result.success) {
+                    this.updateRLStatus('inference', '추론 중', 'running');
+                    btnStartInference.style.display = 'none';
+                    btnStopInference.style.display = 'block';
+                } else {
+                    this.updateRLStatus('inference', '시작 실패', 'error');
+                    btnStartInference.disabled = false;
+                }
+            });
+        }
+
+        if (btnStopInference) {
+            btnStopInference.addEventListener('click', async () => {
+                const result = await this.api.stopInference();
+                this.updateRLStatus('inference', '대기 중', '');
+                btnStopInference.style.display = 'none';
+                const btnStart = document.getElementById('btnStartInference');
+                btnStart.style.display = 'block';
+                btnStart.disabled = false;
+            });
+        }
+    }
+
+    updateRLStatus(mode, text, statusClass) {
+        const statusEl = document.getElementById(`${mode}Status`);
+        if (statusEl) {
+            statusEl.textContent = text;
+            statusEl.className = 'rl-status-value';
+            if (statusClass) {
+                statusEl.classList.add(statusClass);
+            }
         }
     }
 

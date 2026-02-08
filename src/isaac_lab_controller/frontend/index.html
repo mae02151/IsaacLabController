@@ -250,10 +250,27 @@
                                     <span class="joint-name">Gripper</span>
                                     <span class="joint-value" id="jointVal-4">0.000</span>
                                     <div class="joint-bar-container">
-                                        <div class="joint-bar joint-bar-gripper" id="jointBar-4" style="width:50%"></div>
+                                        <div class="joint-bar joint-bar-gripper" id="jointBar-4" style="width:50%">
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- 데이터 수집 -->
+                        <div class="control-group">
+                            <label>데이터 수집</label>
+                            <div class="data-collect-status" id="dataCollectStatus">
+                                <span class="dc-status-indicator" id="dcIndicator"></span>
+                                <span class="dc-status-text" id="dcStatusText">대기 중</span>
+                                <span class="dc-episode-info" id="dcEpisodeInfo">EP 0 / 0 frames</span>
+                            </div>
+                            <div class="data-collect-buttons">
+                                <button id="btnDataStart" class="btn btn-success">녹화 시작</button>
+                                <button id="btnDataStop" class="btn btn-primary" disabled>저장 (다음 EP)</button>
+                                <button id="btnDataDiscard" class="btn btn-secondary" disabled>폐기</button>
+                            </div>
+                            <button id="btnDataFinish" class="btn btn-danger" style="margin-top:0.5rem;">수집 완료</button>
                         </div>
 
                     </div>

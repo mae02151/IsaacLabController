@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from isaac_lab_controller.adapters.base import SceneAdapter
-from isaac_lab_controller.server.routes import camera, objects, materials, robot
+from isaac_lab_controller.server.routes import camera, objects, materials, rl, robot, data_collection
 from isaac_lab_controller.server.websocket_handler import WebSocketHandler
 from isaac_lab_controller.utils.config import load_config, ControllerConfig
 
@@ -62,6 +62,7 @@ def create_app(scene_adapter: SceneAdapter) -> FastAPI:
     app.include_router(objects.router, prefix="/api/objects", tags=["Objects"])
     app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
     app.include_router(robot.router, prefix="/api/robot", tags=["Robot"])
+    app.include_router(data_collection.router, prefix="/api/data", tags=["DataCollection"])
 
     # 정적 파일 서빙 (Frontend)
     frontend_path = Path(__file__).parent.parent / "frontend"
@@ -177,6 +178,7 @@ class ControlServer:
         app.include_router(objects.router, prefix="/api/objects", tags=["Objects"])
         app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
         app.include_router(robot.router, prefix="/api/robot", tags=["Robot"])
+        app.include_router(data_collection.router, prefix="/api/data", tags=["DataCollection"])
 
         # 정적 파일 서빙 (Frontend)
         frontend_path = Path(__file__).parent.parent / "frontend"
