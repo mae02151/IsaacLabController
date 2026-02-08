@@ -36,18 +36,22 @@ class CardboardMaterial:
     ROUGHNESS_RANGE = (0.85, 0.95)
     METALLIC = 0.0
 
-    # NVIDIA Nucleus 박스 에셋 (텍스처 포함, 확인됨)
+    # NVIDIA Nucleus 박스/패키지 에셋 (텍스처 포함)
     _NUCLEUS_BOX_ASSETS = [
         "Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd",
         "Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd",
+        "Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd",
+        "Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
+        # "Environments/Simple_Warehouse/Props/SM_CardBoxB_01_681.usd",
+        # "Props/KLT_Bin/small_KLT.usd",
     ]
 
     @classmethod
     def generate_config(cls) -> Dict[str, Any]:
         """랜덤 택배 박스 설정 생성"""
-        width = random.uniform(0.15, 0.5)
-        depth = random.uniform(0.1, 0.4)
-        height = random.uniform(0.1, 0.35)
+        width = random.uniform(0.05, 0.08)
+        depth = random.uniform(0.05, 0.08)
+        height = random.uniform(0.03, 0.05)
 
         volume = width * depth * height
         mass = volume * 100
@@ -94,14 +98,16 @@ class CardboardMaterial:
             asset = random.choice(cls._NUCLEUS_BOX_ASSETS)
             usd_path = f"{ISAAC_NUCLEUS_DIR}/{asset}"
 
-            # 원하는 크기에 맞춰 균일 스케일
-            scale_factor = random.uniform(1.5, 3.0)
+            # config size 기반으로 스케일 계산
+            # YCB 에셋 기본 크기 ~0.1m 기준, config의 최대 치수에 맞춤
+            target_size = max(config["size"])
+            base_native_size = 0.1  # YCB 에셋 평균 크기 (약 0.1m)
+            scale_factor = target_size / base_native_size * random.uniform(0.4, 0.6)
 
             cfg = sim_utils.UsdFileCfg(
                 usd_path=usd_path,
                 scale=(scale_factor, scale_factor, scale_factor),
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-                mass_props=sim_utils.MassPropertiesCfg(mass=config["mass"]),
                 collision_props=sim_utils.CollisionPropertiesCfg(),
             )
             sim_utils.spawn_from_usd(prim_path, cfg, translation=translation, orientation=orientation)
@@ -122,7 +128,6 @@ class CardboardMaterial:
         cfg = sim_utils.CuboidCfg(
             size=config["size"],
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=config["mass"]),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=config["color"],

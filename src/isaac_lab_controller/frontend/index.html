@@ -71,21 +71,21 @@
                                 <input type="range" id="azimuth-vla" min="0" max="360" value="0">
                             </div>
                             <div class="slider-group">
-                                <label>수직 (Elevation): <span id="elevationValue-vla">30</span>°</label>
-                                <input type="range" id="elevation-vla" min="-90" max="90" value="30">
+                                <label>수직 (Elevation): <span id="elevationValue-vla">90</span>°</label>
+                                <input type="range" id="elevation-vla" min="-90" max="90" value="90">
                             </div>
                             <div class="slider-group">
-                                <label>거리: <span id="distanceValue-vla">2.0</span>m</label>
-                                <input type="range" id="distance-vla" min="0.5" max="10" value="2" step="0.1">
+                                <label>거리: <span id="distanceValue-vla">0.8</span>m</label>
+                                <input type="range" id="distance-vla" min="0.5" max="10" value="0.8" step="0.1">
                             </div>
                         </div>
 
                         <div class="control-group">
                             <label>위치 직접 입력</label>
                             <div class="input-row">
-                                <input type="number" id="camX-vla" placeholder="X" step="0.1" value="1.5">
-                                <input type="number" id="camY-vla" placeholder="Y" step="0.1" value="0">
-                                <input type="number" id="camZ-vla" placeholder="Z" step="0.1" value="0.6">
+                                <input type="number" id="camX-vla" placeholder="X" step="0.1" value="0">
+                                <input type="number" id="camY-vla" placeholder="Y" step="0.1" value="0.1">
+                                <input type="number" id="camZ-vla" placeholder="Z" step="0.1" value="0.8">
                             </div>
                             <button id="btnSetPosition-vla" class="btn btn-primary">위치 적용</button>
                         </div>
@@ -94,10 +94,25 @@
                             <label>타겟 위치</label>
                             <div class="input-row">
                                 <input type="number" id="targetX-vla" placeholder="X" step="0.1" value="0">
-                                <input type="number" id="targetY-vla" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="targetY-vla" placeholder="Y" step="0.1" value="0.1">
                                 <input type="number" id="targetZ-vla" placeholder="Z" step="0.1" value="0">
                             </div>
                             <button id="btnSetTarget-vla" class="btn btn-primary">타겟 적용</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>X/Y 패닝</label>
+                            <div class="pan-grid">
+                                <div></div>
+                                <button id="btnPanUp-vla" class="btn btn-secondary btn-pan">▲</button>
+                                <div></div>
+                                <button id="btnPanLeft-vla" class="btn btn-secondary btn-pan">◀</button>
+                                <div class="pan-center"></div>
+                                <button id="btnPanRight-vla" class="btn btn-secondary btn-pan">▶</button>
+                                <div></div>
+                                <button id="btnPanDown-vla" class="btn btn-secondary btn-pan">▼</button>
+                                <div></div>
+                            </div>
                         </div>
                     </div>
 
@@ -108,10 +123,13 @@
                         <div class="control-group">
                             <label>새 물체 추가</label>
                             <select id="objectType-vla">
-                                <option value="box">📦 박스</option>
+                                <option value="cracker_box">📦 크래커 박스</option>
+                                <option value="sugar_box">📦 설탕 박스</option>
+                                <option value="soup_can">🥫 토마토 수프 캔</option>
+                                <option value="mustard_bottle">🍶 머스타드 병</option>
+                                <option value="box">🟥 기본 큐보이드</option>
                                 <option value="sphere">🔴 구</option>
-                                <option value="cylinder">🥫 원통</option>
-                                <option value="cone">🔺 원뿔</option>
+                                <option value="cylinder">🔵 원통</option>
                             </select>
                             <div class="input-row">
                                 <input type="number" id="objX-vla" placeholder="X" step="0.1" value="0">
@@ -238,7 +256,8 @@
                                     <span class="joint-name">Gripper</span>
                                     <span class="joint-value" id="jointVal-4">0.000</span>
                                     <div class="joint-bar-container">
-                                        <div class="joint-bar joint-bar-gripper" id="jointBar-4" style="width:50%"></div>
+                                        <div class="joint-bar joint-bar-gripper" id="jointBar-4" style="width:50%">
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -293,7 +312,23 @@
 
                         <div class="control-group">
                             <button id="btnStartTrain" class="btn btn-success btn-lg">▶️ Train 시작</button>
-                            <button id="btnStopTrain" class="btn btn-danger btn-lg" style="margin-top: 0.5rem; display: none;">⏹️ Train 중지</button>
+                            <button id="btnStopTrain" class="btn btn-danger btn-lg"
+                                style="margin-top: 0.5rem; display: none;">⏹️ Train 중지</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>X/Y 패닝</label>
+                            <div class="pan-grid">
+                                <div></div>
+                                <button id="btnPanUp-rl" class="btn btn-secondary btn-pan">▲</button>
+                                <div></div>
+                                <button id="btnPanLeft-rl" class="btn btn-secondary btn-pan">◀</button>
+                                <div class="pan-center"></div>
+                                <button id="btnPanRight-rl" class="btn btn-secondary btn-pan">▶</button>
+                                <div></div>
+                                <button id="btnPanDown-rl" class="btn btn-secondary btn-pan">▼</button>
+                                <div></div>
+                            </div>
                         </div>
                     </div>
 
@@ -310,7 +345,8 @@
 
                         <div class="control-group">
                             <button id="btnStartInference" class="btn btn-success btn-lg">▶️ Inference 시작</button>
-                            <button id="btnStopInference" class="btn btn-danger btn-lg" style="margin-top: 0.5rem; display: none;">⏹️ Inference 중지</button>
+                            <button id="btnStopInference" class="btn btn-danger btn-lg"
+                                style="margin-top: 0.5rem; display: none;">⏹️ Inference 중지</button>
                         </div>
                     </div>
                 </aside>
