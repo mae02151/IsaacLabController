@@ -241,7 +241,7 @@ class ControlServer:
             host=self.host,
             port=self.port,
             log_level="info",
-            access_log=True,
+            access_log=False,
         )
         server = uvicorn.Server(config)
 

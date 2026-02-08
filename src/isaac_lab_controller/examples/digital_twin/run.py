@@ -80,6 +80,39 @@ def get_lookat_quat(cam_pos, target_pos, up=np.array([0, 0, 1])):
     return (qw, qx, qy, qz)
 
 
+def spawn_pallets():
+    """물류 센터 팔레트 2개 초기 배치"""
+    pallet_positions = [
+        (-0.15, 0.1, 0.075),
+        (0.15, 0.1, 0.075),
+    ]
+    pallet_scale = (1.0, 1.0, 1.0)
+
+    for i, pos in enumerate(pallet_positions):
+        prim_path = f"/World/Pallets/pallet_{i}"
+        try:
+            usd_path = f"{ISAAC_NUCLEUS_DIR}/Props/KLT_Bin/small_KLT_visual_collision.usd"
+            cfg = sim_utils.UsdFileCfg(
+                usd_path=usd_path,
+                scale=pallet_scale,
+            )
+            sim_utils.spawn_from_usd(prim_path, cfg, translation=pos)
+            print(f"[INFO] 팔레트 스폰 (USD): {prim_path}")
+        except Exception as e:
+            print(f"[INFO] USD 팔레트 실패, 큐보이드 사용: {e}")
+            cfg = sim_utils.CuboidCfg(
+                size=(0.3, 0.1, 0.3),
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+                collision_props=sim_utils.CollisionPropertiesCfg(),
+                visual_material=sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(0.6, 0.45, 0.25),
+                    roughness=0.9,
+                ),
+            )
+            sim_utils.spawn_cuboid(prim_path, cfg, translation=pos)
+            print(f"[INFO] 팔레트 스폰 (큐보이드): {prim_path}")
+
+
 def main():
     print("=" * 60)
     print("[INFO] IsaacLabController 통합 모드 시작")
@@ -109,9 +142,9 @@ def main():
         spawn=sim_utils.GroundPlaneCfg()
     )
 
-    # 카메라 설정 (수직 top-down 뷰: right=+X, down=+Y)
-    cam_pos = np.array([0.5, 0.0, 1.5])
-    target_pos = np.array([0.5, 0.0, 0.0])
+    # 카메라 설정 (수직 top-down 뷰: right=+X, down=+Y, 양 팔레트 중심)
+    cam_pos = np.array([0.0, 0.1, 0.8])
+    target_pos = np.array([0.0, 0.1, 0.0])
     cam_rot = get_lookat_quat(cam_pos, target_pos, up=np.array([0, 1, 0]))
 
     scene_cfg.camera = CameraCfg(
@@ -126,8 +159,12 @@ def main():
         offset=CameraCfg.OffsetCfg(pos=tuple(cam_pos), rot=cam_rot, convention="opengl")
     )
 
-    # 장면 생성 및 시뮬레이션 시작
+    # 장면 생성
     scene = InteractiveScene(scene_cfg)
+
+    # 팔레트 배치 (sim.reset() 전에 스폰)
+    spawn_pallets()
+
     sim.reset()
 
     print("[INFO] 시뮬레이션 초기화 완료")

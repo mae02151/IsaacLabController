@@ -164,7 +164,7 @@ class App {
         }
 
         // X/Y 패닝 버튼
-        const panStep = 0.2;
+        const panStep = 0.05;
         const panBtns = {
             [`btnPanLeft-${suffix}`]: [-panStep, 0],
             [`btnPanRight-${suffix}`]: [panStep, 0],
@@ -536,12 +536,13 @@ class App {
                 return;
             }
 
-            // 물체 스폰
+            // 물체 스폰 (랜덤 방향)
             const objType = document.getElementById(`objectType-${suffix}`)?.value || 'box';
+            const randomRot = this.randomQuaternion();
             const result = await this.api.spawnObject(
                 objType,
                 [worldPos[0], worldPos[1], worldPos[2]],
-                [1, 0, 0, 0]
+                randomRot
             );
 
             if (result.success) {
@@ -584,7 +585,7 @@ class App {
         ]);
 
         // 바닥면(z = spawnHeight)과 교차
-        const spawnHeight = 0.05;
+        const spawnHeight = 0.16;
         if (Math.abs(dir[2]) < 1e-6) return null;  // 수평 레이
 
         const t = (spawnHeight - eye[2]) / dir[2];
@@ -607,6 +608,18 @@ class App {
         const right = this.normalize(this.cross(forward, worldUp));
         const camUp = this.cross(right, forward);
         return { right, camUp };
+    }
+
+    // 균등 분포 랜덤 쿼터니언 (Shoemake 방법)
+    randomQuaternion() {
+        const u1 = Math.random();
+        const u2 = Math.random() * 2 * Math.PI;
+        const u3 = Math.random() * 2 * Math.PI;
+        const w = Math.sqrt(1 - u1) * Math.cos(u2);
+        const x = Math.sqrt(1 - u1) * Math.sin(u2);
+        const y = Math.sqrt(u1) * Math.sin(u3);
+        const z = Math.sqrt(u1) * Math.cos(u3);
+        return [w, x, y, z];
     }
 
     // 벡터 유틸리티

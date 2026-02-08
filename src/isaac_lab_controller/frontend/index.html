@@ -70,21 +70,21 @@
                                 <input type="range" id="azimuth-vla" min="0" max="360" value="0">
                             </div>
                             <div class="slider-group">
-                                <label>수직 (Elevation): <span id="elevationValue-vla">30</span>°</label>
-                                <input type="range" id="elevation-vla" min="-90" max="90" value="30">
+                                <label>수직 (Elevation): <span id="elevationValue-vla">90</span>°</label>
+                                <input type="range" id="elevation-vla" min="-90" max="90" value="90">
                             </div>
                             <div class="slider-group">
-                                <label>거리: <span id="distanceValue-vla">2.0</span>m</label>
-                                <input type="range" id="distance-vla" min="0.5" max="10" value="2" step="0.1">
+                                <label>거리: <span id="distanceValue-vla">0.8</span>m</label>
+                                <input type="range" id="distance-vla" min="0.5" max="10" value="0.8" step="0.1">
                             </div>
                         </div>
 
                         <div class="control-group">
                             <label>위치 직접 입력</label>
                             <div class="input-row">
-                                <input type="number" id="camX-vla" placeholder="X" step="0.1" value="0.5">
-                                <input type="number" id="camY-vla" placeholder="Y" step="0.1" value="0">
-                                <input type="number" id="camZ-vla" placeholder="Z" step="0.1" value="1.5">
+                                <input type="number" id="camX-vla" placeholder="X" step="0.1" value="0">
+                                <input type="number" id="camY-vla" placeholder="Y" step="0.1" value="0.1">
+                                <input type="number" id="camZ-vla" placeholder="Z" step="0.1" value="0.8">
                             </div>
                             <button id="btnSetPosition-vla" class="btn btn-primary">위치 적용</button>
                         </div>
@@ -93,7 +93,7 @@
                             <label>타겟 위치</label>
                             <div class="input-row">
                                 <input type="number" id="targetX-vla" placeholder="X" step="0.1" value="0">
-                                <input type="number" id="targetY-vla" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="targetY-vla" placeholder="Y" step="0.1" value="0.1">
                                 <input type="number" id="targetZ-vla" placeholder="Z" step="0.1" value="0">
                             </div>
                             <button id="btnSetTarget-vla" class="btn btn-primary">타겟 적용</button>
@@ -122,10 +122,13 @@
                         <div class="control-group">
                             <label>새 물체 추가</label>
                             <select id="objectType-vla">
-                                <option value="box">📦 박스</option>
+                                <option value="cracker_box">📦 크래커 박스</option>
+                                <option value="sugar_box">📦 설탕 박스</option>
+                                <option value="soup_can">🥫 토마토 수프 캔</option>
+                                <option value="mustard_bottle">🍶 머스타드 병</option>
+                                <option value="box">🟥 기본 큐보이드</option>
                                 <option value="sphere">🔴 구</option>
-                                <option value="cylinder">🥫 원통</option>
-                                <option value="cone">🔺 원뿔</option>
+                                <option value="cylinder">🔵 원통</option>
                             </select>
                             <div class="input-row">
                                 <input type="number" id="objX-vla" placeholder="X" step="0.1" value="0">
@@ -233,21 +236,21 @@
                                 <input type="range" id="azimuth-rl" min="0" max="360" value="0">
                             </div>
                             <div class="slider-group">
-                                <label>수직 (Elevation): <span id="elevationValue-rl">30</span>°</label>
-                                <input type="range" id="elevation-rl" min="-90" max="90" value="30">
+                                <label>수직 (Elevation): <span id="elevationValue-rl">90</span>°</label>
+                                <input type="range" id="elevation-rl" min="-90" max="90" value="90">
                             </div>
                             <div class="slider-group">
-                                <label>거리: <span id="distanceValue-rl">2.0</span>m</label>
-                                <input type="range" id="distance-rl" min="0.5" max="10" value="2" step="0.1">
+                                <label>거리: <span id="distanceValue-rl">0.8</span>m</label>
+                                <input type="range" id="distance-rl" min="0.5" max="10" value="0.8" step="0.1">
                             </div>
                         </div>
 
                         <div class="control-group">
                             <label>위치 직접 입력</label>
                             <div class="input-row">
-                                <input type="number" id="camX-rl" placeholder="X" step="0.1" value="0.5">
-                                <input type="number" id="camY-rl" placeholder="Y" step="0.1" value="0">
-                                <input type="number" id="camZ-rl" placeholder="Z" step="0.1" value="1.5">
+                                <input type="number" id="camX-rl" placeholder="X" step="0.1" value="0">
+                                <input type="number" id="camY-rl" placeholder="Y" step="0.1" value="0.1">
+                                <input type="number" id="camZ-rl" placeholder="Z" step="0.1" value="0.8">
                             </div>
                             <button id="btnSetPosition-rl" class="btn btn-primary">위치 적용</button>
                         </div>
@@ -256,7 +259,7 @@
                             <label>타겟 위치</label>
                             <div class="input-row">
                                 <input type="number" id="targetX-rl" placeholder="X" step="0.1" value="0">
-                                <input type="number" id="targetY-rl" placeholder="Y" step="0.1" value="0">
+                                <input type="number" id="targetY-rl" placeholder="Y" step="0.1" value="0.1">
                                 <input type="number" id="targetZ-rl" placeholder="Z" step="0.1" value="0">
                             </div>
                             <button id="btnSetTarget-rl" class="btn btn-primary">타겟 적용</button>
@@ -285,10 +288,13 @@
                         <div class="control-group">
                             <label>새 물체 추가</label>
                             <select id="objectType-rl">
-                                <option value="box">📦 박스</option>
+                                <option value="cracker_box">📦 크래커 박스</option>
+                                <option value="sugar_box">📦 설탕 박스</option>
+                                <option value="soup_can">🥫 토마토 수프 캔</option>
+                                <option value="mustard_bottle">🍶 머스타드 병</option>
+                                <option value="box">🟥 기본 큐보이드</option>
                                 <option value="sphere">🔴 구</option>
-                                <option value="cylinder">🥫 원통</option>
-                                <option value="cone">🔺 원뿔</option>
+                                <option value="cylinder">🔵 원통</option>
                             </select>
                             <div class="input-row">
                                 <input type="number" id="objX-rl" placeholder="X" step="0.1" value="0">

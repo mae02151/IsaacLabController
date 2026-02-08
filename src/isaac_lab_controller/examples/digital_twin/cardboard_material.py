@@ -42,8 +42,8 @@ class CardboardMaterial:
         "Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd",
         "Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd",
         "Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
-        "Environments/Simple_Warehouse/Props/SM_CardBoxB_01_681.usd",
-        "Props/KLT_Bin/small_KLT.usd",
+        # "Environments/Simple_Warehouse/Props/SM_CardBoxB_01_681.usd",
+        # "Props/KLT_Bin/small_KLT.usd",
     ]
 
     @classmethod
@@ -108,7 +108,6 @@ class CardboardMaterial:
                 usd_path=usd_path,
                 scale=(scale_factor, scale_factor, scale_factor),
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-                mass_props=sim_utils.MassPropertiesCfg(mass=config["mass"]),
                 collision_props=sim_utils.CollisionPropertiesCfg(),
             )
             sim_utils.spawn_from_usd(prim_path, cfg, translation=translation, orientation=orientation)
@@ -129,7 +128,6 @@ class CardboardMaterial:
         cfg = sim_utils.CuboidCfg(
             size=config["size"],
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=config["mass"]),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=config["color"],

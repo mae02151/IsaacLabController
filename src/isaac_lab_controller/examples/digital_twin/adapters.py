@@ -38,8 +38,8 @@ class DigitalTwinCameraAdapter(CameraAdapter):
     def __init__(self, camera, device: str = "cuda:0", target_fps: int = 30, jpeg_quality: int = 85):
         self.camera = camera
         self.device = device
-        self._current_eye = [1.5, 0.0, 0.6]
-        self._current_target = [0.0, 0.0, 0.0]
+        self._current_eye = [0.0, 0.1, 0.8]
+        self._current_target = [0.0, 0.1, 0.0]
 
         # FPS 제한
         self._target_fps = target_fps
@@ -380,6 +380,14 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             except Exception as e:
                 print(f"물체 명령 처리 오류: {e}")
     
+    # YCB USD 에셋 매핑 (물체 유형 → Nucleus 경로)
+    _YCB_ASSETS = {
+        "cracker_box": "Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd",
+        "sugar_box": "Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd",
+        "soup_can": "Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd",
+        "mustard_bottle": "Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
+    }
+
     def _execute_spawn(
         self,
         object_id: str,
@@ -391,19 +399,27 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
     ) -> None:
         """실제 물체 생성 (메인 스레드에서 실행)"""
         try:
-            # 매니퓰레이터 영역(원점) 회피: x >= 0.5 보장
-            if position[0] < 0.5:
-                position[0] = 0.5
+            from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
             prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
-            
-            # 물체 유형에 따른 설정
-            if obj_type == "box":
-                cfg = self.sim_utils.CuboidCfg(
-                    size=(0.1, 0.1, 0.1),
+
+            # YCB USD 에셋 직접 스폰
+            if obj_type in self._YCB_ASSETS:
+                asset_path = self._YCB_ASSETS[obj_type]
+                usd_path = f"{ISAAC_NUCLEUS_DIR}/{asset_path}"
+                cfg = self.sim_utils.UsdFileCfg(
+                    usd_path=usd_path,
+                    scale=(0.5, 0.5, 0.5),
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
-                    mass_props=self.sim_utils.MassPropertiesCfg(mass=0.1),
+                    collision_props=self.sim_utils.CollisionPropertiesCfg(),
+                )
+                self.sim_utils.spawn_from_usd(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+
+            elif obj_type == "box":
+                cfg = self.sim_utils.CuboidCfg(
+                    size=(0.05, 0.05, 0.05),
+                    rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.8, 0.2, 0.2))
@@ -413,9 +429,8 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
 
             elif obj_type == "sphere":
                 cfg = self.sim_utils.SphereCfg(
-                    radius=0.05,
+                    radius=0.03,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
-                    mass_props=self.sim_utils.MassPropertiesCfg(mass=0.1),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.2, 0.8, 0.2))
@@ -425,10 +440,9 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
 
             elif obj_type == "cylinder":
                 cfg = self.sim_utils.CylinderCfg(
-                    radius=0.05,
-                    height=0.1,
+                    radius=0.03,
+                    height=0.06,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
-                    mass_props=self.sim_utils.MassPropertiesCfg(mass=0.1),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.2, 0.2, 0.8))
@@ -482,10 +496,13 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
     
     def get_available_types(self) -> List[Dict[str, Any]]:
         return [
-            {"type": "box", "name": "박스", "description": "정육면체"},
-            {"type": "sphere", "name": "구", "description": "구체"},
-            {"type": "cylinder", "name": "원통", "description": "원기둥"},
-            {"type": "cone", "name": "원뿔", "description": "원뿔"},
+            {"type": "cracker_box", "name": "크래커 박스", "description": "YCB 크래커 박스"},
+            {"type": "sugar_box", "name": "설탕 박스", "description": "YCB 설탕 박스"},
+            {"type": "soup_can", "name": "토마토 수프 캔", "description": "YCB 수프 캔"},
+            {"type": "mustard_bottle", "name": "머스타드 병", "description": "YCB 머스타드 병"},
+            {"type": "box", "name": "기본 큐보이드", "description": "빨간 큐보이드"},
+            {"type": "sphere", "name": "구", "description": "녹색 구체"},
+            {"type": "cylinder", "name": "원통", "description": "파란 원기둥"},
         ]
     
     def set_pose(
@@ -513,10 +530,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         try:
             obj = self._objects[object_id]
 
-            # 위치 클램핑 (매니퓰레이터 영역 회피)
             pos = list(position) if position else list(obj.position)
-            if pos[0] < 0.5:
-                pos[0] = 0.5
 
             rot = list(rotation) if rotation else list(obj.rotation or [1, 0, 0, 0])
             # rot 형식: [w, x, y, z] → PhysX 형식: [x, y, z, w]
@@ -599,10 +613,6 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             old_rotation = old_obj.rotation
             old_prim_path = old_obj.prim_path
 
-            # 매니퓰레이터 영역(원점) 회피: x >= 0.5 보장
-            if old_position[0] < 0.5:
-                old_position[0] = 0.5
-            
             # 2. 기존 물체 삭제
             stage = omni.usd.get_context().get_stage()
             prim = stage.GetPrimAtPath(old_prim_path)
