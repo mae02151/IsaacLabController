@@ -142,7 +142,8 @@ def spawn_pallets(
     from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
     if positions is None:
-        positions = [(-0.1, 0.1, 0.075), (0.1, 0.1, 0.075)]
+        # positions = [(-0.1, 0.1, 0.075), (0.1, 0.1, 0.075)]
+        positions = [(-0.15, 0.1, 0.075)]
 
     for i, pos in enumerate(positions):
         prim_path = f"/World/Pallets/pallet_{i}"
