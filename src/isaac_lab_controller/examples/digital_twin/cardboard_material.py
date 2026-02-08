@@ -49,9 +49,9 @@ class CardboardMaterial:
     @classmethod
     def generate_config(cls) -> Dict[str, Any]:
         """랜덤 택배 박스 설정 생성"""
-        width = random.uniform(0.15, 0.5)
-        depth = random.uniform(0.1, 0.4)
-        height = random.uniform(0.1, 0.35)
+        width = random.uniform(0.05, 0.08)
+        depth = random.uniform(0.05, 0.08)
+        height = random.uniform(0.03, 0.05)
 
         volume = width * depth * height
         mass = volume * 100
@@ -98,8 +98,11 @@ class CardboardMaterial:
             asset = random.choice(cls._NUCLEUS_BOX_ASSETS)
             usd_path = f"{ISAAC_NUCLEUS_DIR}/{asset}"
 
-            # 원하는 크기에 맞춰 균일 스케일
-            scale_factor = random.uniform(1.5, 3.0)
+            # config size 기반으로 스케일 계산
+            # YCB 에셋 기본 크기 ~0.1m 기준, config의 최대 치수에 맞춤
+            target_size = max(config["size"])
+            base_native_size = 0.1  # YCB 에셋 평균 크기 (약 0.1m)
+            scale_factor = target_size / base_native_size * random.uniform(0.4, 0.6)
 
             cfg = sim_utils.UsdFileCfg(
                 usd_path=usd_path,

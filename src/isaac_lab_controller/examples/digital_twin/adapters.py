@@ -506,41 +506,73 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         position: Optional[List[float]],
         rotation: Optional[List[float]],
     ) -> None:
-        """실제 위치/회전 설정 (메인 스레드에서 실행)"""
+        """실제 위치/회전 설정 (메인 스레드에서 실행, GPU tensor API 사용)"""
         if object_id not in self._objects:
             return
 
         try:
-            from pxr import UsdGeom, Gf
-            import omni.usd
-
             obj = self._objects[object_id]
-            stage = omni.usd.get_context().get_stage()
-            prim = stage.GetPrimAtPath(obj.prim_path)
-            if not prim.IsValid():
-                print(f"[ERROR] set_pose: prim을 찾을 수 없음: {obj.prim_path}")
-                return
 
-            xform = UsdGeom.Xformable(prim)
-            xform.ClearXformOpOrder()
+            # 위치 클램핑 (매니퓰레이터 영역 회피)
+            pos = list(position) if position else list(obj.position)
+            if pos[0] < 0.5:
+                pos[0] = 0.5
 
+            rot = list(rotation) if rotation else list(obj.rotation or [1, 0, 0, 0])
+            # rot 형식: [w, x, y, z] → PhysX 형식: [x, y, z, w]
+            qw, qx, qy, qz = rot[0], rot[1], rot[2], rot[3]
+
+            # GPU tensor API로 위치 설정 (PhysX GPU Direct API 호환)
+            import omni.physics.tensors.impl.api as physx
+
+            sim_view = physx.create_simulation_view(self.device)
+            sim_view.set_subspace_roots("/World/DynamicObjects")
+            rb_view = sim_view.create_rigid_body_view(obj.prim_path)
+
+            # PhysX 텐서 형식: [x, y, z, qx, qy, qz, qw]
+            transforms = torch.tensor(
+                [[pos[0], pos[1], pos[2], qx, qy, qz, qw]],
+                dtype=torch.float32,
+                device=self.device,
+            )
+            rb_view.set_transforms(transforms)
+
+            # 속도 초기화 (이동 후 정지)
+            zeros = torch.zeros((1, 6), dtype=torch.float32, device=self.device)
+            rb_view.set_velocities(zeros)
+
+            # 저장된 정보 업데이트
             if position:
-                # 매니퓰레이터 영역 회피: x >= 0.5
-                pos = list(position)
-                if pos[0] < 0.5:
-                    pos[0] = 0.5
-                translate_op = xform.AddTranslateOp()
-                translate_op.Set(Gf.Vec3d(pos[0], pos[1], pos[2]))
                 obj.position = pos
-
             if rotation:
-                orient_op = xform.AddOrientOp()
-                orient_op.Set(Gf.Quatd(rotation[0], rotation[1], rotation[2], rotation[3]))
-                obj.rotation = rotation
+                obj.rotation = rot
 
-            print(f"[DEBUG] 물체 위치 변경: {object_id} -> pos={position}, rot={rotation}")
+            print(f"[DEBUG] 물체 위치 변경 (tensor API): {object_id} -> pos={pos}")
         except Exception as e:
-            print(f"위치 설정 오류: {e}")
+            # GPU tensor API 실패 시 USD API 폴백 (CPU 모드 등)
+            try:
+                from pxr import UsdGeom, Gf
+                import omni.usd
+
+                stage = omni.usd.get_context().get_stage()
+                prim = stage.GetPrimAtPath(obj.prim_path)
+                if not prim.IsValid():
+                    print(f"[ERROR] set_pose: prim을 찾을 수 없음: {obj.prim_path}")
+                    return
+
+                xform = UsdGeom.Xformable(prim)
+                xform.ClearXformOpOrder()
+
+                if position:
+                    xform.AddTranslateOp().Set(Gf.Vec3d(pos[0], pos[1], pos[2]))
+                    obj.position = pos
+                if rotation:
+                    xform.AddOrientOp().Set(Gf.Quatd(rot[0], rot[1], rot[2], rot[3]))
+                    obj.rotation = rot
+
+                print(f"[DEBUG] 물체 위치 변경 (USD 폴백): {object_id} -> pos={pos}")
+            except Exception as fallback_e:
+                print(f"위치 설정 오류: {e} / 폴백 오류: {fallback_e}")
     
     def transform(self, object_id: str, target_type: str = "random_box") -> bool:
         """물체를 다른 물체로 변환 (큐에 추가)"""

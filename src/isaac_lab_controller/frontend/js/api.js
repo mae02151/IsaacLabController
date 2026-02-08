@@ -75,6 +75,10 @@ class IsaacLabAPI {
         return `${this.baseUrl}/api/camera/frame?t=${Date.now()}`;
     }
 
+    async getCameraIntrinsics() {
+        return this.get('/api/camera/intrinsics');
+    }
+
     // ===== Objects API =====
 
     async listObjects() {

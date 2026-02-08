@@ -107,10 +107,10 @@ def main():
         spawn=sim_utils.GroundPlaneCfg()
     )
 
-    # 카메라 설정
-    cam_pos = np.array([1.5, 0.0, 0.6])
-    target_pos = np.array([0.0, 0.0, 0.0])
-    cam_rot = get_lookat_quat(cam_pos, target_pos)
+    # 카메라 설정 (수직 top-down 뷰: right=+X, down=+Y)
+    cam_pos = np.array([0.5, 0.0, 1.5])
+    target_pos = np.array([0.5, 0.0, 0.0])
+    cam_rot = get_lookat_quat(cam_pos, target_pos, up=np.array([0, 1, 0]))
 
     scene_cfg.camera = CameraCfg(
         prim_path="/World/envs/env_.*/Camera",
