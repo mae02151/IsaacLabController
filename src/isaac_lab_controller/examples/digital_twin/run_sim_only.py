@@ -1,4 +1,3 @@
-
 """
 IsaacLab 시뮬레이션 전용 실행 스크립트 (서버 분리 모드)
 
@@ -7,27 +6,23 @@ ZMQ를 통해 별도 프로세스의 FastAPI 서버와 통신합니다.
 
 사용법:
     # 터미널 1: 시뮬레이션 (한 번만 실행, 계속 켜둠)
-    c:\\Users\\dongu\\IsaacLab\\isaaclab.bat -p run_sim_only.py
-    
+    isaaclab -p run_sim_only.py
+
     # 터미널 2: 서버 (수정 후 재시작)
     python server_standalone.py
 """
-
-import torch
-import os
-import numpy as np
 
 # IsaacLab 앱 실행 (가장 먼저!)
 from isaaclab.app import AppLauncher
 
 app_launcher = AppLauncher(launcher_args={
-    "headless": False, 
-    "enable_cameras": True
+    "headless": False,
+    "enable_cameras": True,
 })
 simulation_app = app_launcher.app
 
 # 이후 import
-from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
+from isaaclab.scene import InteractiveScene
 from isaaclab.sim import SimulationContext
 from isaaclab.assets import RigidObjectCfg, AssetBaseCfg, ArticulationCfg
 from isaaclab.sensors import CameraCfg
@@ -37,84 +32,14 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 # 로봇 설정
 from isaaclab_assets import OPEN_MANIPULATOR_X_GRIPPER_CFG
 
-# IPC 브릿지
 from isaac_lab_controller.ipc import SimulationBridge
 from isaac_lab_controller.examples.digital_twin.adapters import DigitalTwinSceneAdapter
-
-
-def get_lookat_quat(cam_pos, target_pos, up=np.array([0, 0, 1])):
-    """카메라 LookAt 쿼터니언 계산"""
-    forward = target_pos - cam_pos
-    forward = forward / np.linalg.norm(forward)
-    
-    z_axis = -forward 
-    right = np.cross(up, z_axis)
-    x_axis = right / np.linalg.norm(right)
-    y_axis = np.cross(z_axis, x_axis)
-    
-    rot_mat = np.column_stack((x_axis, y_axis, z_axis))
-    
-    tr = np.trace(rot_mat)
-    if tr > 0:
-        S = np.sqrt(tr + 1.0) * 2
-        qw = 0.25 * S
-        qx = (rot_mat[2, 1] - rot_mat[1, 2]) / S
-        qy = (rot_mat[0, 2] - rot_mat[2, 0]) / S
-        qz = (rot_mat[1, 0] - rot_mat[0, 1]) / S
-    elif (rot_mat[0, 0] > rot_mat[1, 1]) and (rot_mat[0, 0] > rot_mat[2, 2]):
-        S = np.sqrt(1.0 + rot_mat[0, 0] - rot_mat[1, 1] - rot_mat[2, 2]) * 2
-        qw = (rot_mat[2, 1] - rot_mat[1, 2]) / S
-        qx = 0.25 * S
-        qy = (rot_mat[0, 1] + rot_mat[1, 0]) / S
-        qz = (rot_mat[0, 2] + rot_mat[2, 0]) / S
-    elif rot_mat[1, 1] > rot_mat[2, 2]:
-        S = np.sqrt(1.0 + rot_mat[1, 1] - rot_mat[0, 0] - rot_mat[2, 2]) * 2
-        qw = (rot_mat[0, 2] - rot_mat[2, 0]) / S
-        qx = (rot_mat[0, 1] + rot_mat[1, 0]) / S
-        qy = 0.25 * S
-        qz = (rot_mat[1, 2] + rot_mat[2, 1]) / S
-    else:
-        S = np.sqrt(1.0 + rot_mat[2, 2] - rot_mat[0, 0] - rot_mat[1, 1]) * 2
-        qw = (rot_mat[1, 0] - rot_mat[0, 1]) / S
-        qx = (rot_mat[0, 2] + rot_mat[2, 0]) / S
-        qy = (rot_mat[1, 2] + rot_mat[2, 1]) / S
-        qz = 0.25 * S
-    return (qw, qx, qy, qz)
-
-
-def spawn_pallets():
-    """물류 센터 팔레트 2개 초기 배치"""
-    from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR as _NUCLEUS_DIR
-
-    pallet_positions = [
-        (-0.3, 0.1, 0.0),
-        (0.3, 0.1, 0.0),
-    ]
-    pallet_scale = (1.0, 1.0, 1.0)
-
-    for i, pos in enumerate(pallet_positions):
-        prim_path = f"/World/Pallets/pallet_{i}"
-        try:
-            usd_path = f"{_NUCLEUS_DIR}/Props/KLT_Bin/small_KLT_visual_collision.usd"
-            cfg = sim_utils.UsdFileCfg(
-                usd_path=usd_path,
-                scale=pallet_scale,
-            )
-            sim_utils.spawn_from_usd(prim_path, cfg, translation=pos)
-            print(f"[SIM] 팔레트 스폰 (USD): {prim_path}")
-        except Exception as e:
-            print(f"[SIM] USD 팔레트 실패, 큐보이드 사용: {e}")
-            cfg = sim_utils.CuboidCfg(
-                size=(0.3, 0.2, 0.01),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-                visual_material=sim_utils.PreviewSurfaceCfg(
-                    diffuse_color=(0.6, 0.45, 0.25),
-                    roughness=0.9,
-                ),
-            )
-            sim_utils.spawn_cuboid(prim_path, cfg, translation=pos)
-            print(f"[SIM] 팔레트 스폰 (큐보이드): {prim_path}")
+from isaac_lab_controller.examples.digital_twin.scene_setup import (
+    create_simulation_cfg,
+    create_scene_cfg,
+    spawn_pallets,
+)
+from isaac_lab_controller.examples.digital_twin.sim_loop import run_simulation_loop
 
 
 def main():
@@ -155,37 +80,15 @@ def main():
         prim_path="/World/envs/env_.*/Robot"
     )
 
-    # 카메라 설정 (수직 top-down 뷰: right=+X, down=+Y, 양 팔레트 중심)
-    cam_pos = np.array([0.0, 0.1, 0.8])
-    target_pos = np.array([0.0, 0.1, 0.0])
-    cam_rot = get_lookat_quat(cam_pos, target_pos, up=np.array([0, 1, 0]))
-
-    scene_cfg.camera = CameraCfg(
-        prim_path="/World/envs/env_.*/Camera",
-        update_period=0.0,
-        height=480, width=640,
-        data_types=["rgb"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0, focus_distance=400.0,
-            horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
-        ),
-        offset=CameraCfg.OffsetCfg(pos=tuple(cam_pos), rot=cam_rot, convention="opengl")
-    )
-
-    # 장면 생성
-    scene = InteractiveScene(scene_cfg)
-
-    # 팔레트 배치 (sim.reset() 전에 스폰)
-    spawn_pallets()
+    # 2. 팔레트 배치
+    spawn_pallets(positions=[(-0.3, 0.1, 0.0), (0.3, 0.1, 0.0)])
 
     sim.reset()
-    
     print("[SIM] 시뮬레이션 초기화 완료")
 
-    # 3. 어댑터 및 ZMQ 브릿지 설정
+    # 3. 어댑터 + ZMQ 브릿지
     adapter = DigitalTwinSceneAdapter(sim, scene, simulation_app, sim_utils)
-    
-    # ZMQ 브릿지 시작 (포트 5555)
+
     bridge = SimulationBridge(port=5555)
     bridge.register_adapter("camera", adapter.get_camera_adapter())
     bridge.register_adapter("object", adapter.get_object_adapter())
@@ -202,8 +105,7 @@ def main():
     print("=" * 60)
     print("[SIM] ZMQ 브릿지 대기 중: tcp://*:5555")
     print("[SIM] 이제 다른 터미널에서 server_standalone.py를 실행하세요!")
-    print("=" * 60)
-    print("")
+    print(f"{'=' * 60}\n")
 
     # 4. 시뮬레이션 루프
     camera_adapter = adapter.get_camera_adapter()
