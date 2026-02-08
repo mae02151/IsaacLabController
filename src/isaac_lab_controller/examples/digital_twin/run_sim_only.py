@@ -80,8 +80,8 @@ def main():
         prim_path="/World/envs/env_.*/Robot"
     )
 
-    # 2. 팔레트 배치
-    spawn_pallets(positions=[(-0.3, 0.1, 0.0), (0.3, 0.1, 0.0)])
+    # 2. 팔레트 배치 (pallet_1에 연두색 적용)
+    spawn_pallets(highlight_index=1)
 
     sim.reset()
     print("[SIM] 시뮬레이션 초기화 완료")
