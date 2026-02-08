@@ -442,6 +442,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             # 스폰 위치: 목표 Z + 드롭 높이
             spawn_pos = (position[0], position[1], position[2] + self._SPAWN_DROP_HEIGHT)
 
+            # 큐보이드 기준 질량 (0.05³ m³ × 1000 kg/m³ = 0.125 kg)
+            _CUBOID_MASS = 0.125
+            _mass_props = self.sim_utils.MassPropertiesCfg(mass=_CUBOID_MASS)
+
             # YCB USD 에셋 직접 스폰
             if obj_type in self._YCB_ASSETS:
                 asset_path = self._YCB_ASSETS[obj_type]
@@ -449,6 +453,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 cfg = self.sim_utils.UsdFileCfg(
                     usd_path=usd_path,
                     scale=(0.5, 0.5, 0.5),
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                 )
@@ -457,6 +462,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             elif obj_type == "box":
                 cfg = self.sim_utils.CuboidCfg(
                     size=(0.05, 0.05, 0.05),
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
@@ -468,6 +474,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             elif obj_type == "sphere":
                 cfg = self.sim_utils.SphereCfg(
                     radius=0.03,
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
@@ -480,6 +487,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 cfg = self.sim_utils.CylinderCfg(
                     radius=0.03,
                     height=0.06,
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
@@ -915,6 +923,7 @@ class DigitalTwinRobotAdapter(RobotAdapter):
     # Open Manipulator X 관절 설정
     ARM_JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4"]
     GRIPPER_JOINT_NAME = "gripper_left_joint"
+    GRIPPER_RIGHT_JOINT_NAME = "gripper_right_joint"
     JOINT_LIMITS = {
         "joint1": (-3.14159, 3.14159),
         "joint2": (-1.5, 1.5),
@@ -946,6 +955,7 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         # 관절 인덱스 매핑
         self._arm_joint_indices = [robot.joint_names.index(name) for name in self.ARM_JOINT_NAMES]
         self._gripper_joint_idx = robot.joint_names.index(self.GRIPPER_JOINT_NAME)
+        self._gripper_right_joint_idx = robot.joint_names.index(self.GRIPPER_RIGHT_JOINT_NAME)
 
         # 명령 큐 (스레드 안전)
         from queue import Queue
@@ -962,7 +972,7 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         self._joint_vel_buffer = torch.zeros((num_envs, robot.num_joints), device=self.device)
 
         print(f"[RobotAdapter] 초기화: joints={robot.joint_names}")
-        print(f"[RobotAdapter] arm_indices={self._arm_joint_indices}, gripper_idx={self._gripper_joint_idx}")
+        print(f"[RobotAdapter] arm_indices={self._arm_joint_indices}, gripper_idx={self._gripper_joint_idx}, gripper_right_idx={self._gripper_right_joint_idx}")
         print(f"[RobotAdapter] 원본 stiffness={self._original_stiffness}")
         print(f"[RobotAdapter] 원본 damping={self._original_damping}")
 
@@ -1052,9 +1062,10 @@ class DigitalTwinRobotAdapter(RobotAdapter):
                 if i < len(positions):
                     self._joint_pos_buffer[:, idx] = positions[i]
 
-            # gripper 설정
+            # gripper 설정 (양쪽 그리퍼 모두 동일한 값으로 설정)
             if len(positions) > 4:
                 self._joint_pos_buffer[:, self._gripper_joint_idx] = positions[4]
+                self._joint_pos_buffer[:, self._gripper_right_joint_idx] = positions[4]
 
             # PD position target 설정 (부드러운 이동, 물리 안정성 유지)
             # GPU 파이프라인: 텐서를 GPU에 유지해야 함 (device -1 = CPU 오류 방지)
