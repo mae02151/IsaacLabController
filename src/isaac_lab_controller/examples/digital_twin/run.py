@@ -1,12 +1,17 @@
 """
-Digital Twin 예제 실행 스크립트
+Digital Twin 통합 실행 스크립트 (IsaacSim + FastAPI 단일 프로세스)
 
-기존 make_synthetic_data.py를 IsaacLabController와 통합하여 실행합니다.
+ZMQ 통신 없이 IsaacSim과 백엔드 서버를 한 프로세스에서 실행합니다.
+서버는 백그라운드 스레드에서, 시뮬레이션은 메인 스레드에서 동작합니다.
 
 사용법:
-    python run.py
-    
+    isaaclab -p run.py
+
     브라우저에서 http://localhost:8000 접속
+
+비교:
+    - run.py: 통합 모드 (단일 프로세스, ZMQ 없음, 빠름)
+    - run_sim_only.py + server_standalone.py: 분리 모드 (ZMQ 통신, 서버 재시작 가능)
 """
 
 import torch
@@ -17,7 +22,7 @@ import numpy as np
 from isaaclab.app import AppLauncher
 
 app_launcher = AppLauncher(launcher_args={
-    "headless": False, 
+    "headless": False,
     "enable_cameras": True
 })
 simulation_app = app_launcher.app
@@ -39,14 +44,14 @@ def get_lookat_quat(cam_pos, target_pos, up=np.array([0, 0, 1])):
     """카메라 LookAt 쿼터니언 계산"""
     forward = target_pos - cam_pos
     forward = forward / np.linalg.norm(forward)
-    
-    z_axis = -forward 
+
+    z_axis = -forward
     right = np.cross(up, z_axis)
     x_axis = right / np.linalg.norm(right)
     y_axis = np.cross(z_axis, x_axis)
-    
+
     rot_mat = np.column_stack((x_axis, y_axis, z_axis))
-    
+
     tr = np.trace(rot_mat)
     if tr > 0:
         S = np.sqrt(tr + 1.0) * 2
@@ -75,12 +80,48 @@ def get_lookat_quat(cam_pos, target_pos, up=np.array([0, 0, 1])):
     return (qw, qx, qy, qz)
 
 
+def spawn_pallets():
+    """물류 센터 팔레트 2개 초기 배치"""
+    pallet_positions = [
+        (-0.15, 0.1, 0.075),
+        (0.15, 0.1, 0.075),
+    ]
+    pallet_scale = (1.0, 1.0, 1.0)
+
+    for i, pos in enumerate(pallet_positions):
+        prim_path = f"/World/Pallets/pallet_{i}"
+        try:
+            usd_path = f"{ISAAC_NUCLEUS_DIR}/Props/KLT_Bin/small_KLT_visual_collision.usd"
+            cfg = sim_utils.UsdFileCfg(
+                usd_path=usd_path,
+                scale=pallet_scale,
+            )
+            sim_utils.spawn_from_usd(prim_path, cfg, translation=pos)
+            print(f"[INFO] 팔레트 스폰 (USD): {prim_path}")
+        except Exception as e:
+            print(f"[INFO] USD 팔레트 실패, 큐보이드 사용: {e}")
+            cfg = sim_utils.CuboidCfg(
+                size=(0.3, 0.1, 0.3),
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+                collision_props=sim_utils.CollisionPropertiesCfg(),
+                visual_material=sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(0.6, 0.45, 0.25),
+                    roughness=0.9,
+                ),
+            )
+            sim_utils.spawn_cuboid(prim_path, cfg, translation=pos)
+            print(f"[INFO] 팔레트 스폰 (큐보이드): {prim_path}")
+
+
 def main():
-    print("[INFO] IsaacLabController 예제 시작...")
-    
+    print("=" * 60)
+    print("[INFO] IsaacLabController 통합 모드 시작")
+    print("[INFO] ZMQ 없이 단일 프로세스로 실행합니다")
+    print("=" * 60)
+
     # 1. 시뮬레이션 설정
     sim_cfg = sim_utils.SimulationCfg(
-        dt=0.05,
+        dt=0.01,  # 100Hz 물리
         physx=sim_utils.PhysxCfg(
             enable_stabilization=True,
             enable_external_forces_every_iteration=True
@@ -90,7 +131,7 @@ def main():
 
     # 2. 장면 구성
     scene_cfg = InteractiveSceneCfg(num_envs=1, env_spacing=2.0)
-    
+
     # 조명 및 바닥
     scene_cfg.dome_light = AssetBaseCfg(
         prim_path="/World/DomeLight",
@@ -101,10 +142,10 @@ def main():
         spawn=sim_utils.GroundPlaneCfg()
     )
 
-    # 카메라 설정
-    cam_pos = np.array([1.5, 0.0, 0.6])
-    target_pos = np.array([0.0, 0.0, 0.0])
-    cam_rot = get_lookat_quat(cam_pos, target_pos)
+    # 카메라 설정 (수직 top-down 뷰: right=+X, down=+Y, 양 팔레트 중심)
+    cam_pos = np.array([0.0, 0.1, 0.8])
+    target_pos = np.array([0.0, 0.1, 0.0])
+    cam_rot = get_lookat_quat(cam_pos, target_pos, up=np.array([0, 1, 0]))
 
     scene_cfg.camera = CameraCfg(
         prim_path="/World/envs/env_.*/Camera",
@@ -121,24 +162,28 @@ def main():
     # 장면 생성
     scene = InteractiveScene(scene_cfg)
 
-    # 3. IsaacLabController 연동
-    # 어댑터 생성 (오브젝트 풀이 sim.reset() 전에 미리 생성됨)
-    adapter = DigitalTwinSceneAdapter(sim, scene, simulation_app, sim_utils)
+    # 팔레트 배치 (sim.reset() 전에 스폰)
+    spawn_pallets()
 
-    # 시뮬레이션 시작 (PhysX GPU 초기화)
     sim.reset()
-
-    # GPU PhysX tensor view 초기화 (sim.reset() 후 필수)
-    adapter.init_physics_views()
 
     print("[INFO] 시뮬레이션 초기화 완료")
 
-    # 서버 시작 (백그라운드)
-    server = ControlServer(adapter, port=8000)
+    # 3. 어댑터 생성 (sim.reset() 후에 생성)
+    adapter = DigitalTwinSceneAdapter(sim, scene, simulation_app, sim_utils)
+
+    # 4. 서버 시작 (백그라운드 스레드)
+    # 주의: IsaacSim(Omniverse Kit)이 내부적으로 포트 8000을 사용하므로 다른 포트 사용
+    server_port = 8080
+    server = ControlServer(adapter, port=server_port)
     server.start_background()
-    
-    print("[INFO] 🌐 웹 서버 시작: http://localhost:8000")
+
+    print("")
+    print("=" * 60)
+    print(f"[INFO] 웹 서버 시작: http://localhost:{server_port}")
     print("[INFO] 브라우저에서 접속하여 시뮬레이션을 제어하세요!")
+    print("=" * 60)
+    print("")
 
     # 4. 시뮬레이션 루프
     camera_adapter = adapter.get_camera_adapter()

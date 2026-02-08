@@ -39,8 +39,8 @@ class DigitalTwinCameraAdapter(CameraAdapter):
     def __init__(self, camera, device: str = "cuda:0", target_fps: int = 60, jpeg_quality: int = 75):
         self.camera = camera
         self.device = device
-        self._current_eye = [1.5, 0.0, 0.6]
-        self._current_target = [0.0, 0.0, 0.0]
+        self._current_eye = [0.0, 0.1, 0.8]
+        self._current_target = [0.0, 0.1, 0.0]
 
         # FPS 제한
         self._target_fps = target_fps
@@ -391,6 +391,14 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             except Exception as e:
                 print(f"물체 명령 처리 오류: {e}")
     
+    # YCB USD 에셋 매핑 (물체 유형 → Nucleus 경로)
+    _YCB_ASSETS = {
+        "cracker_box": "Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd",
+        "sugar_box": "Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd",
+        "soup_can": "Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd",
+        "mustard_bottle": "Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
+    }
+
     def _execute_spawn(
         self,
         object_id: str,
@@ -402,19 +410,27 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
     ) -> None:
         """실제 물체 생성 (메인 스레드에서 실행)"""
         try:
-            # 매니퓰레이터 영역(원점) 회피: x >= 0.5 보장
-            if position[0] < 0.5:
-                position[0] = 0.5
+            from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
             prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
-            
-            # 물체 유형에 따른 설정
-            if obj_type == "box":
-                cfg = self.sim_utils.CuboidCfg(
-                    size=(0.1, 0.1, 0.1),
+
+            # YCB USD 에셋 직접 스폰
+            if obj_type in self._YCB_ASSETS:
+                asset_path = self._YCB_ASSETS[obj_type]
+                usd_path = f"{ISAAC_NUCLEUS_DIR}/{asset_path}"
+                cfg = self.sim_utils.UsdFileCfg(
+                    usd_path=usd_path,
+                    scale=(0.5, 0.5, 0.5),
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
-                    mass_props=self.sim_utils.MassPropertiesCfg(mass=0.1),
+                    collision_props=self.sim_utils.CollisionPropertiesCfg(),
+                )
+                self.sim_utils.spawn_from_usd(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+
+            elif obj_type == "box":
+                cfg = self.sim_utils.CuboidCfg(
+                    size=(0.05, 0.05, 0.05),
+                    rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.8, 0.2, 0.2))
@@ -424,9 +440,8 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
 
             elif obj_type == "sphere":
                 cfg = self.sim_utils.SphereCfg(
-                    radius=0.05,
+                    radius=0.03,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
-                    mass_props=self.sim_utils.MassPropertiesCfg(mass=0.1),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.2, 0.8, 0.2))
@@ -436,10 +451,9 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
 
             elif obj_type == "cylinder":
                 cfg = self.sim_utils.CylinderCfg(
-                    radius=0.05,
-                    height=0.1,
+                    radius=0.03,
+                    height=0.06,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
-                    mass_props=self.sim_utils.MassPropertiesCfg(mass=0.1),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.2, 0.2, 0.8))
@@ -493,10 +507,13 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
     
     def get_available_types(self) -> List[Dict[str, Any]]:
         return [
-            {"type": "box", "name": "박스", "description": "정육면체"},
-            {"type": "sphere", "name": "구", "description": "구체"},
-            {"type": "cylinder", "name": "원통", "description": "원기둥"},
-            {"type": "cone", "name": "원뿔", "description": "원뿔"},
+            {"type": "cracker_box", "name": "크래커 박스", "description": "YCB 크래커 박스"},
+            {"type": "sugar_box", "name": "설탕 박스", "description": "YCB 설탕 박스"},
+            {"type": "soup_can", "name": "토마토 수프 캔", "description": "YCB 수프 캔"},
+            {"type": "mustard_bottle", "name": "머스타드 병", "description": "YCB 머스타드 병"},
+            {"type": "box", "name": "기본 큐보이드", "description": "빨간 큐보이드"},
+            {"type": "sphere", "name": "구", "description": "녹색 구체"},
+            {"type": "cylinder", "name": "원통", "description": "파란 원기둥"},
         ]
     
     def set_pose(
@@ -517,41 +534,70 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         position: Optional[List[float]],
         rotation: Optional[List[float]],
     ) -> None:
-        """실제 위치/회전 설정 (메인 스레드에서 실행)"""
+        """실제 위치/회전 설정 (메인 스레드에서 실행, GPU tensor API 사용)"""
         if object_id not in self._objects:
             return
 
         try:
-            from pxr import UsdGeom, Gf
-            import omni.usd
-
             obj = self._objects[object_id]
-            stage = omni.usd.get_context().get_stage()
-            prim = stage.GetPrimAtPath(obj.prim_path)
-            if not prim.IsValid():
-                print(f"[ERROR] set_pose: prim을 찾을 수 없음: {obj.prim_path}")
-                return
 
-            xform = UsdGeom.Xformable(prim)
-            xform.ClearXformOpOrder()
+            pos = list(position) if position else list(obj.position)
 
+            rot = list(rotation) if rotation else list(obj.rotation or [1, 0, 0, 0])
+            # rot 형식: [w, x, y, z] → PhysX 형식: [x, y, z, w]
+            qw, qx, qy, qz = rot[0], rot[1], rot[2], rot[3]
+
+            # GPU tensor API로 위치 설정 (PhysX GPU Direct API 호환)
+            import omni.physics.tensors.impl.api as physx
+
+            sim_view = physx.create_simulation_view(self.device)
+            sim_view.set_subspace_roots("/World/DynamicObjects")
+            rb_view = sim_view.create_rigid_body_view(obj.prim_path)
+
+            # PhysX 텐서 형식: [x, y, z, qx, qy, qz, qw]
+            transforms = torch.tensor(
+                [[pos[0], pos[1], pos[2], qx, qy, qz, qw]],
+                dtype=torch.float32,
+                device=self.device,
+            )
+            rb_view.set_transforms(transforms)
+
+            # 속도 초기화 (이동 후 정지)
+            zeros = torch.zeros((1, 6), dtype=torch.float32, device=self.device)
+            rb_view.set_velocities(zeros)
+
+            # 저장된 정보 업데이트
             if position:
-                # 매니퓰레이터 영역 회피: x >= 0.5
-                pos = list(position)
-                if pos[0] < 0.5:
-                    pos[0] = 0.5
-                translate_op = xform.AddTranslateOp()
-                translate_op.Set(Gf.Vec3d(pos[0], pos[1], pos[2]))
                 obj.position = pos
-
             if rotation:
-                orient_op = xform.AddOrientOp()
-                orient_op.Set(Gf.Quatd(rotation[0], rotation[1], rotation[2], rotation[3]))
-                obj.rotation = rotation
+                obj.rotation = rot
 
-            print(f"[DEBUG] 물체 위치 변경: {object_id} -> pos={position}, rot={rotation}")
+            print(f"[DEBUG] 물체 위치 변경 (tensor API): {object_id} -> pos={pos}")
         except Exception as e:
-            print(f"위치 설정 오류: {e}")
+            # GPU tensor API 실패 시 USD API 폴백 (CPU 모드 등)
+            try:
+                from pxr import UsdGeom, Gf
+                import omni.usd
+
+                stage = omni.usd.get_context().get_stage()
+                prim = stage.GetPrimAtPath(obj.prim_path)
+                if not prim.IsValid():
+                    print(f"[ERROR] set_pose: prim을 찾을 수 없음: {obj.prim_path}")
+                    return
+
+                xform = UsdGeom.Xformable(prim)
+                xform.ClearXformOpOrder()
+
+                if position:
+                    xform.AddTranslateOp().Set(Gf.Vec3d(pos[0], pos[1], pos[2]))
+                    obj.position = pos
+                if rotation:
+                    xform.AddOrientOp().Set(Gf.Quatd(rot[0], rot[1], rot[2], rot[3]))
+                    obj.rotation = rot
+
+                print(f"[DEBUG] 물체 위치 변경 (USD 폴백): {object_id} -> pos={pos}")
+            except Exception as fallback_e:
+                print(f"위치 설정 오류: {e} / 폴백 오류: {fallback_e}")
     
     def transform(self, object_id: str, target_type: str = "random_box") -> bool:
         """물체를 다른 물체로 변환 (큐에 추가)"""
@@ -578,10 +624,6 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             old_rotation = old_obj.rotation
             old_prim_path = old_obj.prim_path
 
-            # 매니퓰레이터 영역(원점) 회피: x >= 0.5 보장
-            if old_position[0] < 0.5:
-                old_position[0] = 0.5
-            
             # 2. 기존 물체 삭제
             stage = omni.usd.get_context().get_stage()
             prim = stage.GetPrimAtPath(old_prim_path)

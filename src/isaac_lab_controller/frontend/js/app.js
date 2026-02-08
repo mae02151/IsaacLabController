@@ -141,6 +141,70 @@ class App {
                 }
             });
         }
+
+        // X/Y 패닝 버튼
+        const panStep = 0.05;
+        const panBtns = {
+            [`btnPanLeft-${suffix}`]: [-panStep, 0],
+            [`btnPanRight-${suffix}`]: [panStep, 0],
+            [`btnPanUp-${suffix}`]: [0, panStep],
+            [`btnPanDown-${suffix}`]: [0, -panStep],
+        };
+
+        Object.entries(panBtns).forEach(([btnId, [dx, dy]]) => {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                btn.addEventListener('click', () => this.panCamera(dx, dy));
+            }
+        });
+    }
+
+    async panCamera(dx, dy) {
+        try {
+            const poseResult = await this.api.getCameraPose();
+            if (!poseResult.success) return;
+
+            const pose = poseResult.data;
+            const eye = pose.eye || pose.position;
+            const target = pose.target || [0, 0, 0];
+
+            // 카메라 로컬 축 계산 (top-down 호환)
+            const forward = this.normalize(this.sub(target, eye));
+            const { right, camUp } = this.getCameraAxes(forward);
+
+            // eye와 target을 동일하게 이동 (패닝)
+            const newEye = [
+                eye[0] + dx * right[0] + dy * camUp[0],
+                eye[1] + dx * right[1] + dy * camUp[1],
+                eye[2] + dx * right[2] + dy * camUp[2]
+            ];
+            const newTarget = [
+                target[0] + dx * right[0] + dy * camUp[0],
+                target[1] + dx * right[1] + dy * camUp[1],
+                target[2] + dx * right[2] + dy * camUp[2]
+            ];
+
+            await this.api.setCameraLookat(newEye, newTarget);
+
+            // UI 입력 필드 동기화
+            ['vla', 'rl'].forEach(suffix => {
+                const camX = document.getElementById(`camX-${suffix}`);
+                const camY = document.getElementById(`camY-${suffix}`);
+                const camZ = document.getElementById(`camZ-${suffix}`);
+                const targetX = document.getElementById(`targetX-${suffix}`);
+                const targetY = document.getElementById(`targetY-${suffix}`);
+                const targetZ = document.getElementById(`targetZ-${suffix}`);
+
+                if (camX) camX.value = newEye[0].toFixed(1);
+                if (camY) camY.value = newEye[1].toFixed(1);
+                if (camZ) camZ.value = newEye[2].toFixed(1);
+                if (targetX) targetX.value = newTarget[0].toFixed(1);
+                if (targetY) targetY.value = newTarget[1].toFixed(1);
+                if (targetZ) targetZ.value = newTarget[2].toFixed(1);
+            });
+        } catch (e) {
+            console.error('카메라 패닝 오류:', e);
+        }
     }
 
     async loadCameras() {
@@ -548,6 +612,146 @@ class App {
                 }
             });
         }
+
+        // 클릭-투-스폰: 프리뷰 이미지 클릭 시 해당 3D 위치에 물체 생성
+        const previewImage = document.getElementById(`previewImage-${suffix}`);
+        if (previewImage) {
+            previewImage.style.cursor = 'crosshair';
+            previewImage.addEventListener('click', (e) => this.onPreviewClick(e, suffix));
+        }
+    }
+
+    async onPreviewClick(event, suffix) {
+        const img = event.target;
+        const rect = img.getBoundingClientRect();
+
+        // 이미지 상의 클릭 좌표 (0~1 정규화)
+        const clickX = (event.clientX - rect.left) / rect.width;
+        const clickY = (event.clientY - rect.top) / rect.height;
+
+        try {
+            // 카메라 intrinsics + pose 동시 조회
+            const [intrResult, poseResult] = await Promise.all([
+                this.api.getCameraIntrinsics(),
+                this.api.getCameraPose()
+            ]);
+
+            if (!intrResult.success || !poseResult.success) {
+                console.error('카메라 정보 조회 실패');
+                return;
+            }
+
+            const intr = intrResult.data;
+            const pose = poseResult.data;
+            const eye = pose.eye || pose.position;
+            const target = pose.target || [0, 0, 0];
+
+            // 3D 위치 계산 (ray-ground intersection)
+            const worldPos = this.screenToWorld(clickX, clickY, eye, target, intr);
+
+            if (!worldPos) {
+                console.warn('바닥면과 교차점 없음 (카메라가 위를 보고 있음)');
+                return;
+            }
+
+            // 물체 스폰 (랜덤 방향)
+            const objType = document.getElementById(`objectType-${suffix}`)?.value || 'box';
+            const randomRot = this.randomQuaternion();
+            const result = await this.api.spawnObject(
+                objType,
+                [worldPos[0], worldPos[1], worldPos[2]],
+                randomRot
+            );
+
+            if (result.success) {
+                console.log(`클릭 스폰: (${worldPos[0].toFixed(2)}, ${worldPos[1].toFixed(2)}, ${worldPos[2].toFixed(2)})`);
+                await this.refreshObjects();
+            }
+        } catch (e) {
+            console.error('클릭 스폰 오류:', e);
+        }
+    }
+
+    screenToWorld(u, v, eye, target, intrinsics) {
+        // NDC 좌표 계산 (-1 ~ 1)
+        // CSS scaleY(-1) 플립 반영: 화면 아래 = +Y
+        const ndcX = (u - 0.5) * 2;
+        const ndcY = (v - 0.5) * 2;  // CSS 플립 보정 (down=+Y)
+
+        // 카메라 벡터 계산 (top-down 호환)
+        const forward = this.normalize(this.sub(target, eye));
+        const { right, camUp } = this.getCameraAxes(forward);
+
+        // FOV 계산 (intrinsics 기반)
+        const focalLength = intrinsics.focal_length || 24.0;
+        const hAperture = intrinsics.horizontal_aperture || 20.955;
+        const width = intrinsics.width || 640;
+        const height = intrinsics.height || 480;
+        const vAperture = hAperture * height / width;
+
+        const halfFovX = Math.atan(hAperture / (2 * focalLength));
+        const halfFovY = Math.atan(vAperture / (2 * focalLength));
+
+        // 레이 방향 계산
+        const tanX = ndcX * Math.tan(halfFovX);
+        const tanY = ndcY * Math.tan(halfFovY);
+
+        const dir = this.normalize([
+            forward[0] + tanX * right[0] + tanY * camUp[0],
+            forward[1] + tanX * right[1] + tanY * camUp[1],
+            forward[2] + tanX * right[2] + tanY * camUp[2]
+        ]);
+
+        // 바닥면(z = spawnHeight)과 교차
+        const spawnHeight = 0.16;
+        if (Math.abs(dir[2]) < 1e-6) return null;  // 수평 레이
+
+        const t = (spawnHeight - eye[2]) / dir[2];
+        if (t < 0) return null;  // 뒤쪽 교차
+
+        return [
+            eye[0] + t * dir[0],
+            eye[1] + t * dir[1],
+            spawnHeight
+        ];
+    }
+
+    // 카메라 로컬 축 계산 (top-down 뷰 호환)
+    getCameraAxes(forward) {
+        let worldUp = [0, 0, 1];
+        // top-down: forward가 worldUp과 거의 평행 → 대체 up 벡터 사용
+        if (Math.abs(forward[2]) > 0.99) {
+            worldUp = [0, 1, 0];
+        }
+        const right = this.normalize(this.cross(forward, worldUp));
+        const camUp = this.cross(right, forward);
+        return { right, camUp };
+    }
+
+    // 균등 분포 랜덤 쿼터니언 (Shoemake 방법)
+    randomQuaternion() {
+        const u1 = Math.random();
+        const u2 = Math.random() * 2 * Math.PI;
+        const u3 = Math.random() * 2 * Math.PI;
+        const w = Math.sqrt(1 - u1) * Math.cos(u2);
+        const x = Math.sqrt(1 - u1) * Math.sin(u2);
+        const y = Math.sqrt(u1) * Math.sin(u3);
+        const z = Math.sqrt(u1) * Math.cos(u3);
+        return [w, x, y, z];
+    }
+
+    // 벡터 유틸리티
+    sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+    cross(a, b) {
+        return [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0]
+        ];
+    }
+    normalize(v) {
+        const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        return len > 0 ? [v[0] / len, v[1] / len, v[2] / len] : v;
     }
 
     startStreaming() {

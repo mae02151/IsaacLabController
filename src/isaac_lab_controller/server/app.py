@@ -232,24 +232,36 @@ class ControlServer:
     
     def _run_server(self) -> None:
         """서버 실행 (내부용)"""
-        import uvicorn
-        
+        try:
+            import uvicorn
+        except ImportError as e:
+            print(f"[ERROR] uvicorn 임포트 실패: {e}")
+            print("[ERROR] 'pip install uvicorn' 로 설치하세요.")
+            self._is_running = False
+            return
+
         config = uvicorn.Config(
             self.app,
             host=self.host,
             port=self.port,
-            log_level="warning",
+            log_level="info",
             access_log=False,
         )
         server = uvicorn.Server(config)
-        
+
         # 새 이벤트 루프 생성 (스레드에서)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         try:
+            print(f"[ControlServer] uvicorn 서버 시작 중... http://{self.host}:{self.port}")
             loop.run_until_complete(server.serve())
+        except Exception as e:
+            print(f"[ERROR] 서버 실행 오류: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
+            self._is_running = False
             loop.close()
     
     def run(self) -> None:
