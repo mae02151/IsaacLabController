@@ -112,6 +112,45 @@ def spawn_pallets():
             sim_utils.spawn_cuboid(prim_path, cfg, translation=pos)
             print(f"[INFO] 팔레트 스폰 (큐보이드): {prim_path}")
 
+        # +0.3 쪽 (index 1) 팔레트 색상 변경 (연두색)
+        if i == 1:
+            try:
+                # 0. /World/Looks 스코프 확인 및 생성
+                import omni.usd
+                from pxr import UsdShade, UsdGeom, Sdf
+
+                stage = omni.usd.get_context().get_stage()
+                looks_path = "/World/Looks"
+                looks_prim = stage.GetPrimAtPath(looks_path)
+                if not looks_prim.IsValid():
+                    UsdGeom.Scope.Define(stage, looks_path)
+
+                # 1. 재질 생성
+                material_path = "/World/Looks/GreenMaterial"
+                material_cfg = sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(0.5, 0.8, 0.2),  # 연두색
+                    roughness=0.5,
+                    metallic=0.0,
+                )
+                sim_utils.spawn_preview_surface(material_path, material_cfg)
+
+                # 2. 바인딩 (USD API 사용 - 강제 적용)
+                pallet_prim = stage.GetPrimAtPath(prim_path)
+                material_prim = stage.GetPrimAtPath(material_path)
+
+                if pallet_prim.IsValid() and material_prim.IsValid():
+                    # Material Binding API 적용 (strongerThanDescendants)
+                    material = UsdShade.Material(material_prim)
+                    UsdShade.MaterialBindingAPI(pallet_prim).Bind(
+                        material, bindingStrength=UsdShade.Tokens.strongerThanDescendants
+                    )
+                    print(f"[INFO] 팔레트 색상 변경 완료 (강제): {prim_path} -> 연두색")
+                else:
+                    print(f"[WARN] 팔레트 색상 변경 실패: Prim을 찾을 수 없음 ({prim_path})")
+
+            except Exception as e:
+                print(f"[ERROR] 팔레트 색상 변경 중 오류 발생: {e}")
+
 
 def main():
     print("=" * 60)
