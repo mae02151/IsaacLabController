@@ -1037,11 +1037,15 @@ class DigitalTwinRobotAdapter(RobotAdapter):
             print(f"[RobotAdapter] 텔레오프 업데이트 오류: {e}")
 
     def _execute_set_joints(self, positions: List[float]) -> None:
-        """실제 관절 위치 적용 (메인 스레드에서 실행)"""
+        """실제 관절 위치 적용 (메인 스레드에서 실행)
+
+        PD position target을 사용하여 부드럽게 이동합니다.
+        write_joint_state_to_sim()은 관절을 순간이동시켜 물체를 밀어내는
+        물리 불안정을 유발하므로 사용하지 않습니다.
+        """
         try:
             # 미리 할당된 버퍼 재사용 (CUDA 텐서 할당 최소화)
             self._joint_pos_buffer.zero_()
-            self._joint_vel_buffer.zero_()
 
             # arm 관절 설정
             for i, idx in enumerate(self._arm_joint_indices):
@@ -1052,9 +1056,12 @@ class DigitalTwinRobotAdapter(RobotAdapter):
             if len(positions) > 4:
                 self._joint_pos_buffer[:, self._gripper_joint_idx] = positions[4]
 
-            # 관절 상태 직접 설정 (PhysX 관절 위치/속도 텔레포트)
-            # 텔레오프 중에는 PD 게인=0이므로 sim.step()에서 되돌려지지 않음
-            self.robot.write_joint_state_to_sim(self._joint_pos_buffer, self._joint_vel_buffer)
+            # PD position target 설정 (부드러운 이동, 물리 안정성 유지)
+            # GPU 파이프라인: 텐서를 GPU에 유지해야 함 (device -1 = CPU 오류 방지)
+            indices = torch.tensor([0], dtype=torch.long, device=self.device)
+            self.robot.root_physx_view.set_dof_position_targets(
+                self._joint_pos_buffer, indices
+            )
 
             with self._joint_lock:
                 self._current_joint_positions = list(positions[:5])
@@ -1095,15 +1102,8 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         self._teleop_running = True
         self._demo_time = 0.0
 
-        # PD 컨트롤러 비활성화 (stiffness=0, damping=0)
-        # 이렇게 하면 sim.step()에서 PD 힘이 발생하지 않아
-        # write_joint_state_to_sim()으로 설정한 위치가 유지됨
-        import torch
-        zeros = torch.zeros_like(self._original_stiffness)
-        indices = torch.tensor([0], dtype=torch.long, device="cpu")
-        self.robot.root_physx_view.set_dof_stiffnesses(zeros.cpu(), indices)
-        self.robot.root_physx_view.set_dof_dampings(zeros.cpu(), indices)
-        print(f"[RobotAdapter] PD 게인 비활성화 (stiffness=0, damping=0)")
+        # PD 게인 유지 — set_dof_position_targets()로 부드럽게 추종
+        # PD 컨트롤러가 물리적으로 안정한 힘을 계산하므로 물체 밀어내기 방지
         print(f"[RobotAdapter] 텔레오퍼레이션 시작: mode={mode}")
 
     def _execute_stop_teleop(self) -> None:
@@ -1112,13 +1112,6 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         if self._ros2_bridge is not None:
             self._ros2_bridge = None
         self._ros2_connected = False
-
-        # PD 컨트롤러 복원 (원본 stiffness/damping)
-        import torch
-        indices = torch.tensor([0], dtype=torch.long, device="cpu")
-        self.robot.root_physx_view.set_dof_stiffnesses(self._original_stiffness.cpu(), indices)
-        self.robot.root_physx_view.set_dof_dampings(self._original_damping.cpu(), indices)
-        print("[RobotAdapter] PD 게인 복원")
         print("[RobotAdapter] 텔레오퍼레이션 중지")
 
     def _update_demo_teleop(self) -> None:
