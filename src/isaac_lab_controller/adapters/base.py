@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from isaac_lab_controller.adapters.camera_adapter import CameraAdapter
     from isaac_lab_controller.adapters.object_adapter import ObjectAdapter
     from isaac_lab_controller.adapters.material_adapter import MaterialAdapter
+    from isaac_lab_controller.adapters.robot_adapter import RobotAdapter
 
 
 class SceneAdapter(ABC):
@@ -128,14 +129,23 @@ class SceneAdapter(ABC):
     def get_camera_by_id(self, camera_id: str) -> Optional["CameraAdapter"]:
         """
         특정 ID의 카메라 어댑터 반환
-        
+
         Args:
             camera_id: 카메라 ID
-        
+
         Returns:
             CameraAdapter or None: 해당 카메라 어댑터
         """
         if camera_id == "default":
             return self.get_camera_adapter()
+        return None
+
+    def get_robot_adapter(self) -> Optional["RobotAdapter"]:
+        """
+        로봇 어댑터 반환
+
+        Returns:
+            RobotAdapter or None: 로봇 제어를 위한 어댑터 (없으면 None)
+        """
         return None
 

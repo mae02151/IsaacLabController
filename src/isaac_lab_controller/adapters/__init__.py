@@ -8,10 +8,12 @@ from isaac_lab_controller.adapters.base import SceneAdapter
 from isaac_lab_controller.adapters.camera_adapter import CameraAdapter
 from isaac_lab_controller.adapters.object_adapter import ObjectAdapter
 from isaac_lab_controller.adapters.material_adapter import MaterialAdapter
+from isaac_lab_controller.adapters.robot_adapter import RobotAdapter
 
 __all__ = [
     "SceneAdapter",
     "CameraAdapter",
     "ObjectAdapter",
     "MaterialAdapter",
+    "RobotAdapter",
 ]

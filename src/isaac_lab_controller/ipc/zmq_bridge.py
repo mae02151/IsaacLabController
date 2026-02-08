@@ -133,31 +133,39 @@ class SimulationBridge:
     
     def process_messages(self) -> None:
         """
-        메시지 처리 (non-blocking)
-        
+        메시지 처리 (non-blocking, 대기 중인 모든 메시지 처리)
+
         시뮬레이션 루프에서 매 프레임 호출합니다.
+        REQ/REP 패턴이므로 응답 후 즉시 다음 요청이 도착할 수 있어
+        대기 중인 모든 메시지를 처리합니다.
         """
-        try:
-            # non-blocking 수신
-            raw_msg = self.socket.recv_string(zmq.NOBLOCK)
-            msg = IPCMessage.from_dict(json.loads(raw_msg))
-            
-            # 메시지 처리
-            response = self._handle_message(msg)
-            
-            # 응답 전송
-            self.socket.send_string(json.dumps(response.to_dict()))
-            
-        except zmq.Again:
-            # 메시지 없음 (정상)
-            pass
-        except Exception as e:
-            print(f"[SimulationBridge] 메시지 처리 오류: {e}")
+        while True:
             try:
-                error_response = IPCResponse(success=False, error=str(e))
-                self.socket.send_string(json.dumps(error_response.to_dict()))
-            except:
-                pass
+                # non-blocking 수신
+                raw_msg = self.socket.recv_string(zmq.NOBLOCK)
+                msg = IPCMessage.from_dict(json.loads(raw_msg))
+
+                # 메시지 처리
+                response = self._handle_message(msg)
+
+                # 바이너리 데이터는 multipart로 전송 (base64 인코딩 제거)
+                if isinstance(response.data, bytes):
+                    header = json.dumps({"success": True, "data_type": "binary"}).encode()
+                    self.socket.send_multipart([header, response.data], zmq.NOBLOCK)
+                else:
+                    self.socket.send_string(json.dumps(response.to_dict()))
+
+            except zmq.Again:
+                # 더 이상 메시지 없음
+                break
+            except Exception as e:
+                print(f"[SimulationBridge] 메시지 처리 오류: {e}")
+                try:
+                    error_response = IPCResponse(success=False, error=str(e))
+                    self.socket.send_string(json.dumps(error_response.to_dict()))
+                except:
+                    pass
+                break
     
     def _handle_message(self, msg: IPCMessage) -> IPCResponse:
         """메시지 처리 및 어댑터 메서드 호출"""
@@ -232,11 +240,17 @@ class ServerBridge:
             try:
                 # 요청 전송
                 self.socket.send_string(json.dumps(msg.to_dict()))
-                
-                # 응답 수신
-                raw_response = self.socket.recv_string()
-                return IPCResponse.from_dict(json.loads(raw_response))
-                
+
+                # multipart 응답 수신 (바이너리 데이터 지원)
+                parts = self.socket.recv_multipart()
+                header = json.loads(parts[0])
+
+                # 바이너리 데이터 (base64 없이 직접 전송됨)
+                if header.get("data_type") == "binary" and len(parts) > 1:
+                    return IPCResponse(success=True, data=parts[1])
+
+                return IPCResponse.from_dict(header)
+
             except zmq.Again:
                 return IPCResponse(success=False, error="Timeout: 시뮬레이션 응답 없음")
             except Exception as e:
