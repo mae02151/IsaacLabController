@@ -159,6 +159,28 @@ class IsaacLabAPI {
         return this.get('/api/robot/teleop/status');
     }
 
+    // ===== Data Collection API =====
+
+    async getDataStatus() {
+        return this.get('/api/data/status');
+    }
+
+    async dataStart() {
+        return this.post('/api/data/start', {});
+    }
+
+    async dataStop(success = true) {
+        return this.post('/api/data/stop', { success });
+    }
+
+    async dataDiscard() {
+        return this.post('/api/data/discard', {});
+    }
+
+    async dataFinish() {
+        return this.post('/api/data/finish', {});
+    }
+
     // ===== RL API =====
 
     async startTrain(numEnvs = 64) {

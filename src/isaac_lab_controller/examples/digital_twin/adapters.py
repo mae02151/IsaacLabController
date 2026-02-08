@@ -341,12 +341,16 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         self.device = device
         self._objects: Dict[str, ObjectInfo] = {}
         self._counter = 0
-        
+
         # 명령 큐 (스레드 안전)
         from queue import Queue
         self._command_queue: Queue = Queue()
         self._pending_results: Dict[str, Any] = {}
         self._results_lock = threading.Lock()
+
+        # 지연 포즈 업데이트 큐 (GPU 파이프라인 호환)
+        # spawn 후 다음 프레임에서 GPU tensor API로 위치를 재설정
+        self._deferred_poses: List[tuple] = []
     
     def spawn(
         self, 
@@ -373,9 +377,22 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
     def process_commands(self) -> None:
         """
         메인 스레드에서 호출: 큐에 쌓인 물체 생성/삭제 처리
-        
+
         시뮬레이션 루프에서 매 프레임마다 호출해야 합니다.
         """
+        # 1. 지연된 포즈 업데이트 먼저 적용 (이전 프레임에서 spawn된 물체)
+        if self._deferred_poses:
+            pending = self._deferred_poses[:]
+            self._deferred_poses.clear()
+            for item in pending:
+                if len(item) == 4:
+                    object_id, position, rotation, retry_count = item
+                else:
+                    object_id, position, rotation = item
+                    retry_count = 0
+                self._execute_set_pose(object_id, position, rotation, _retry_count=retry_count)
+
+        # 2. 큐에 쌓인 명령 처리
         while not self._command_queue.empty():
             try:
                 cmd = self._command_queue.get_nowait()
@@ -474,8 +491,13 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 prim_path=prim_path,
             )
             self._objects[object_id] = obj_info
+
+            # GPU 파이프라인 호환: 다음 프레임에서 GPU tensor API로 위치 재설정
+            # spawn_from_usd의 translation은 GPU Direct API에서 무시될 수 있음
+            self._deferred_poses.append((object_id, position, rotation))
+
             print(f"[DEBUG] 물체 생성 완료: {object_id} at {prim_path}")
-            
+
         except Exception as e:
             print(f"물체 생성 오류: {e}")
     
@@ -528,31 +550,48 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         self._command_queue.put(('set_pose', object_id, position, rotation))
         return True
 
+    # 지연 포즈 최대 재시도 횟수 (physics view에 prim이 아직 없을 때)
+    _MAX_DEFERRED_RETRIES = 5
+
     def _execute_set_pose(
         self,
         object_id: str,
         position: Optional[List[float]],
         rotation: Optional[List[float]],
+        _retry_count: int = 0,
     ) -> None:
-        """실제 위치/회전 설정 (메인 스레드에서 실행, GPU tensor API 사용)"""
+        """실제 위치/회전 설정 (메인 스레드에서 실행, GPU tensor API 사용)
+
+        Isaac Lab 표준 방식: physx.create_simulation_view("torch", stage_id)로
+        시뮬레이션 뷰를 생성하고 rigid_body_view를 통해 GPU 파이프라인 호환 변환 수행.
+        """
         if object_id not in self._objects:
             return
 
+        obj = self._objects[object_id]
+        pos = list(position) if position else list(obj.position)
+        rot = list(rotation) if rotation else list(obj.rotation or [1, 0, 0, 0])
+        # rot 형식: [w, x, y, z] → PhysX 형식: [x, y, z, w]
+        qw, qx, qy, qz = rot[0], rot[1], rot[2], rot[3]
+
         try:
-            obj = self._objects[object_id]
-
-            pos = list(position) if position else list(obj.position)
-
-            rot = list(rotation) if rotation else list(obj.rotation or [1, 0, 0, 0])
-            # rot 형식: [w, x, y, z] → PhysX 형식: [x, y, z, w]
-            qw, qx, qy, qz = rot[0], rot[1], rot[2], rot[3]
-
-            # GPU tensor API로 위치 설정 (PhysX GPU Direct API 호환)
+            # GPU tensor API로 위치 설정 (Isaac Lab 표준 방식)
             import omni.physics.tensors.impl.api as physx
+            from isaaclab.sim.utils.stage import get_current_stage_id
 
-            sim_view = physx.create_simulation_view(self.device)
-            sim_view.set_subspace_roots("/World/DynamicObjects")
+            stage_id = get_current_stage_id()
+            sim_view = physx.create_simulation_view("torch", stage_id)
+            sim_view.set_subspace_roots("/")
             rb_view = sim_view.create_rigid_body_view(obj.prim_path)
+
+            if rb_view.count == 0:
+                # Physics가 아직 이 prim을 인식하지 못함 → 다음 프레임에 재시도
+                if _retry_count < self._MAX_DEFERRED_RETRIES:
+                    self._deferred_poses.append((object_id, position, rotation, _retry_count + 1))
+                    print(f"[DEBUG] rigid body 미발견, 재시도 예약 ({_retry_count + 1}/{self._MAX_DEFERRED_RETRIES}): {object_id}")
+                else:
+                    print(f"[WARN] rigid body 최대 재시도 초과, 포기: {object_id}")
+                return
 
             # PhysX 텐서 형식: [x, y, z, qx, qy, qz, qw]
             transforms = torch.tensor(
@@ -574,9 +613,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
 
             print(f"[DEBUG] 물체 위치 변경 (tensor API): {object_id} -> pos={pos}")
         except Exception as e:
-            # GPU tensor API 실패 시 USD API 폴백 (CPU 모드 등)
+            print(f"[WARN] tensor API 위치 설정 실패: {e}")
+            # GPU tensor API 실패 시 USD API 폴백 (Isaac Lab standardize_xform_ops 사용)
             try:
-                from pxr import UsdGeom, Gf
+                from isaaclab.sim.utils.transforms import standardize_xform_ops
                 import omni.usd
 
                 stage = omni.usd.get_context().get_stage()
@@ -585,14 +625,15 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     print(f"[ERROR] set_pose: prim을 찾을 수 없음: {obj.prim_path}")
                     return
 
-                xform = UsdGeom.Xformable(prim)
-                xform.ClearXformOpOrder()
+                standardize_xform_ops(
+                    prim,
+                    translation=tuple(pos),
+                    orientation=tuple(rot),
+                )
 
                 if position:
-                    xform.AddTranslateOp().Set(Gf.Vec3d(pos[0], pos[1], pos[2]))
                     obj.position = pos
                 if rotation:
-                    xform.AddOrientOp().Set(Gf.Quatd(rot[0], rot[1], rot[2], rot[3]))
                     obj.rotation = rot
 
                 print(f"[DEBUG] 물체 위치 변경 (USD 폴백): {object_id} -> pos={pos}")
@@ -653,7 +694,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     prim_path=new_prim_path,
                 )
                 self._objects[object_id] = new_obj
-                
+
+                # GPU 파이프라인 호환: 다음 프레임에서 위치 재설정
+                self._deferred_poses.append((object_id, old_position, old_rotation))
+
                 print(f"[DEBUG] 물체 변환 완료: {object_id} -> 택배박스 (크기: {box_config['size']})")
             else:
                 print(f"지원하지 않는 변환 유형: {target_type}")
