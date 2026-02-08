@@ -168,17 +168,21 @@ class SimulationBridge:
                 break
     
     def _handle_message(self, msg: IPCMessage) -> IPCResponse:
-        """메시지 처리 및 어댑터 메서드 호출"""
+        """메시지 처리 및 어댑터 메서드/속성 호출"""
         adapter = self._adapters.get(msg.adapter)
         if adapter is None:
             return IPCResponse(success=False, error=f"Unknown adapter: {msg.adapter}")
-        
-        method = getattr(adapter, msg.method, None)
-        if method is None:
+
+        attr = getattr(adapter, msg.method, None)
+        if attr is None:
             return IPCResponse(success=False, error=f"Unknown method: {msg.method}")
-        
+
         try:
-            result = method(*msg.args, **msg.kwargs)
+            # callable이면 메서드 호출, 아니면 property/속성 값 반환
+            if callable(attr):
+                result = attr(*msg.args, **msg.kwargs)
+            else:
+                result = attr
             return IPCResponse(success=True, data=result)
         except Exception as e:
             return IPCResponse(success=False, error=str(e))

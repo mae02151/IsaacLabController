@@ -1,13 +1,12 @@
 /**
  * IsaacLab Controller 메인 앱
- * VLA / Reinforcement 탭 지원
+ * VLA 탭 지원
  */
 
 
 class App {
     constructor() {
         this.api = window.api;
-        this.currentMainTab = 'vla';  // 현재 활성 메인 탭
         this.isStreaming = true;
         this.streamingInterval = null;
         this.objects = [];
@@ -21,44 +20,20 @@ class App {
     }
 
     async init() {
-        this.setupMainTabNavigation();
         this.setupTabNavigation();
         this.setupCameraControls();
         this.setupObjectControls();
         this.setupMaterialControls();
         this.setupPreviewControls();
-        this.setupRLControls();
         this.setupRobotControls();
+        this.setupDataCollectionControls();
 
         await this.loadInitialData();
         await this.loadCameras();
         await this.loadRobotInfo();
+        await this.loadDataCollectionStatus();
         this.startStreaming();
         this.updateConnectionStatus(true);
-    }
-
-    // ===== 메인 탭 네비게이션 (VLA / Reinforcement) =====
-
-    setupMainTabNavigation() {
-        const mainTabBtns = document.querySelectorAll('.main-tab-btn');
-        const mainTabContents = document.querySelectorAll('.main-tab-content');
-
-        mainTabBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tabId = btn.dataset.mainTab;
-                this.currentMainTab = tabId;
-
-                // 버튼 상태 변경
-                mainTabBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-
-                // 컨텐츠 표시
-                mainTabContents.forEach(c => c.classList.remove('active'));
-                document.getElementById(`main-tab-${tabId}`).classList.add('active');
-
-                console.log('메인 탭 변경:', tabId);
-            });
-        });
     }
 
     // ===== 탭 네비게이션 (Camera / Objects / Materials) =====
@@ -66,8 +41,6 @@ class App {
     setupTabNavigation() {
         // VLA 탭용 (카메라/물체/재질)
         this.setupTabsForSection('vla');
-        // RL 탭용 (Train/Inference)
-        this.setupTabsForSection('rl');
     }
 
     setupTabsForSection(suffix) {
@@ -606,6 +579,118 @@ class App {
         }
     }
 
+    // ===== 데이터 수집 제어 =====
+
+    setupDataCollectionControls() {
+        const btnStart = document.getElementById('btnDataStart');
+        const btnStop = document.getElementById('btnDataStop');
+        const btnDiscard = document.getElementById('btnDataDiscard');
+        const btnFinish = document.getElementById('btnDataFinish');
+
+        if (btnStart) {
+            btnStart.addEventListener('click', async () => {
+                const result = await this.api.dataStart();
+                if (result.success) {
+                    this.updateDataCollectionUI(true, result.episode_index, 0);
+                } else {
+                    console.warn('녹화 시작 실패:', result.message);
+                }
+            });
+        }
+
+        if (btnStop) {
+            btnStop.addEventListener('click', async () => {
+                const result = await this.api.dataStop(true);
+                if (result.success) {
+                    this.updateDataCollectionUI(true, result.next_episode, 0);
+                }
+            });
+        }
+
+        if (btnDiscard) {
+            btnDiscard.addEventListener('click', async () => {
+                const result = await this.api.dataDiscard();
+                if (result.success) {
+                    this.updateDataCollectionUI(true, result.next_episode, 0);
+                }
+            });
+        }
+
+        if (btnFinish) {
+            btnFinish.addEventListener('click', async () => {
+                if (!confirm('데이터 수집을 완료하시겠습니까?')) return;
+                const result = await this.api.dataFinish();
+                if (result.success) {
+                    this.updateDataCollectionUI(false, 0, 0);
+                    this.stopDataCollectionPolling();
+                    const statusText = document.getElementById('dcStatusText');
+                    if (statusText) statusText.textContent = '수집 완료';
+                }
+            });
+        }
+
+        // 상태 폴링 시작 (2초마다)
+        this.startDataCollectionPolling();
+    }
+
+    startDataCollectionPolling() {
+        this.stopDataCollectionPolling();
+        this._dcPollingInterval = setInterval(async () => {
+            await this.loadDataCollectionStatus();
+        }, 2000);
+    }
+
+    stopDataCollectionPolling() {
+        if (this._dcPollingInterval) {
+            clearInterval(this._dcPollingInterval);
+            this._dcPollingInterval = null;
+        }
+    }
+
+    async loadDataCollectionStatus() {
+        try {
+            const result = await this.api.getDataStatus();
+            if (result.success && result.data) {
+                this.updateDataCollectionUI(
+                    result.data.is_recording,
+                    result.data.episode_index,
+                    result.data.frame_count
+                );
+            }
+        } catch (e) {
+            // DataCollector 미등록 시 무시
+        }
+    }
+
+    updateDataCollectionUI(isRecording, episodeIndex, frameCount) {
+        const indicator = document.getElementById('dcIndicator');
+        const statusText = document.getElementById('dcStatusText');
+        const episodeInfo = document.getElementById('dcEpisodeInfo');
+        const btnStart = document.getElementById('btnDataStart');
+        const btnStop = document.getElementById('btnDataStop');
+        const btnDiscard = document.getElementById('btnDataDiscard');
+
+        if (indicator) {
+            indicator.className = 'dc-status-indicator ' + (isRecording ? 'recording' : '');
+        }
+        if (statusText) {
+            statusText.textContent = isRecording ? 'REC' : '대기 중';
+            statusText.className = 'dc-status-text ' + (isRecording ? 'recording' : '');
+        }
+        if (episodeInfo) {
+            episodeInfo.textContent = `EP ${episodeIndex} / ${frameCount} frames`;
+        }
+        if (btnStart) {
+            btnStart.disabled = isRecording;
+        }
+        if (btnStop) {
+            btnStop.disabled = !isRecording;
+        }
+        if (btnDiscard) {
+            btnDiscard.disabled = !isRecording;
+        }
+    }
+
     // ===== RL (Train / Inference) 제어 =====
 
     setupRLControls() {
@@ -687,9 +772,7 @@ class App {
     // ===== 미리보기 제어 =====
 
     setupPreviewControls() {
-        ['vla', 'rl'].forEach(suffix => {
-            this.setupPreviewControlsForSection(suffix);
-        });
+        this.setupPreviewControlsForSection('vla');
     }
 
     setupPreviewControlsForSection(suffix) {
@@ -709,13 +792,10 @@ class App {
             btnToggleStream.addEventListener('click', () => {
                 this.isStreaming = !this.isStreaming;
 
-                // 모든 탭의 버튼 상태 동기화
-                ['vla', 'rl'].forEach(s => {
-                    const btn = document.getElementById(`btnToggleStream-${s}`);
-                    if (btn) {
-                        btn.textContent = this.isStreaming ? '⏸️ 스트림 일시정지' : '▶️ 스트림 재생';
-                    }
-                });
+                const toggleBtn = document.getElementById(`btnToggleStream-vla`);
+                if (toggleBtn) {
+                    toggleBtn.textContent = this.isStreaming ? '⏸️ 스트림 일시정지' : '▶️ 스트림 재생';
+                }
 
                 if (this.isStreaming) {
                     this.startStreaming();
@@ -881,22 +961,17 @@ class App {
                 const blob = await response.blob();
                 const url = URL.createObjectURL(blob);
 
-                ['vla', 'rl'].forEach(suffix => {
-                    const preview = document.getElementById(`previewImage-${suffix}`);
-                    const overlay = document.getElementById(`previewOverlay-${suffix}`);
-                    if (preview) {
-                        // 이전 Blob URL 해제
-                        if (preview._blobUrl) URL.revokeObjectURL(preview._blobUrl);
-                        preview._blobUrl = url;
-                        preview.src = url;
-                    }
-                    if (overlay) overlay.classList.add('hidden');
-                });
+                const preview = document.getElementById('previewImage-vla');
+                const overlay = document.getElementById('previewOverlay-vla');
+                if (preview) {
+                    if (preview._blobUrl) URL.revokeObjectURL(preview._blobUrl);
+                    preview._blobUrl = url;
+                    preview.src = url;
+                }
+                if (overlay) overlay.classList.add('hidden');
             } catch (e) {
-                ['vla', 'rl'].forEach(suffix => {
-                    const overlay = document.getElementById(`previewOverlay-${suffix}`);
-                    if (overlay) overlay.classList.remove('hidden');
-                });
+                const errOverlay = document.getElementById('previewOverlay-vla');
+                if (errOverlay) errOverlay.classList.remove('hidden');
                 // 에러 시 짧은 대기 후 재시도
                 await new Promise(r => setTimeout(r, 100));
             }

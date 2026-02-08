@@ -221,6 +221,41 @@ class ProxyRobotAdapter:
         return response.data if response.success else {"running": False, "mode": "demo", "connected": False}
 
 
+class ProxyDataCollector:
+    """DataCollector 프록시 - ZMQ로 시뮬레이션의 DataCollector와 통신"""
+
+    def __init__(self, bridge: ServerBridge):
+        self.bridge = bridge
+
+    @property
+    def is_recording(self) -> bool:
+        response = self.bridge.call("data_collector", "is_recording")
+        return response.data if response.success else False
+
+    @property
+    def episode_index(self) -> int:
+        response = self.bridge.call("data_collector", "episode_index")
+        return response.data if response.success else 0
+
+    @property
+    def frame_count(self) -> int:
+        response = self.bridge.call("data_collector", "frame_count")
+        return response.data if response.success else 0
+
+    def start_episode(self):
+        self.bridge.call("data_collector", "start_episode")
+
+    def end_episode(self, success: bool = True) -> bool:
+        response = self.bridge.call("data_collector", "end_episode", kwargs={"success": success})
+        return response.data if response.success else False
+
+    def discard_episode(self):
+        self.bridge.call("data_collector", "discard_episode")
+
+    def close(self):
+        self.bridge.call("data_collector", "close")
+
+
 class ProxySceneAdapter:
     """씬 어댑터 프록시 - ZMQ로 시뮬레이션과 통신"""
     
@@ -282,9 +317,12 @@ def main():
     
     # 프록시 어댑터 생성
     scene_adapter = ProxySceneAdapter(bridge)
-    
+
     # FastAPI 앱 생성
     app = create_app(scene_adapter)
+
+    # DataCollector 프록시 등록 (데이터 수집 API 지원)
+    app.state.data_collector = ProxyDataCollector(bridge)
     
     print("")
     print("=" * 60)

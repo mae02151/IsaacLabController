@@ -341,12 +341,16 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         self.device = device
         self._objects: Dict[str, ObjectInfo] = {}
         self._counter = 0
-        
+
         # 명령 큐 (스레드 안전)
         from queue import Queue
         self._command_queue: Queue = Queue()
         self._pending_results: Dict[str, Any] = {}
         self._results_lock = threading.Lock()
+
+        # 지연 포즈 업데이트 큐 (GPU 파이프라인 호환)
+        # spawn 후 다음 프레임에서 GPU tensor API로 위치를 재설정
+        self._deferred_poses: List[tuple] = []
     
     def spawn(
         self, 
@@ -373,9 +377,22 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
     def process_commands(self) -> None:
         """
         메인 스레드에서 호출: 큐에 쌓인 물체 생성/삭제 처리
-        
+
         시뮬레이션 루프에서 매 프레임마다 호출해야 합니다.
         """
+        # 1. 지연된 포즈 업데이트 먼저 적용 (이전 프레임에서 spawn된 물체)
+        if self._deferred_poses:
+            pending = self._deferred_poses[:]
+            self._deferred_poses.clear()
+            for item in pending:
+                if len(item) == 4:
+                    object_id, position, rotation, retry_count = item
+                else:
+                    object_id, position, rotation = item
+                    retry_count = 0
+                self._execute_set_pose(object_id, position, rotation, _retry_count=retry_count)
+
+        # 2. 큐에 쌓인 명령 처리
         while not self._command_queue.empty():
             try:
                 cmd = self._command_queue.get_nowait()
@@ -399,6 +416,9 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         "mustard_bottle": "Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
     }
 
+    # 스폰 시 Z 오프셋 (위에서 떨어뜨리기, 기존 물체 밀어내기 방지)
+    _SPAWN_DROP_HEIGHT = 0.3
+
     def _execute_spawn(
         self,
         object_id: str,
@@ -408,63 +428,80 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         name: Optional[str] = None,
         **kwargs
     ) -> None:
-        """실제 물체 생성 (메인 스레드에서 실행)"""
+        """실제 물체 생성 (메인 스레드에서 실행)
+
+        물체를 목표 위치보다 높은 곳에서 스폰하여 중력으로 자연스럽게 떨어뜨립니다.
+        이렇게 하면 기존 물체를 밀어내는 현상을 방지할 수 있습니다.
+        """
         try:
             from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
             prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
 
+            # 스폰 위치: 목표 Z + 드롭 높이
+            spawn_pos = (position[0], position[1], position[2] + self._SPAWN_DROP_HEIGHT)
+
+            # 큐보이드 기준 질량 (0.05³ m³ × 1000 kg/m³ = 0.125 kg)
+            _CUBOID_MASS = 0.08
+            _mass_props = self.sim_utils.MassPropertiesCfg(mass=_CUBOID_MASS)
+
             # YCB USD 에셋 직접 스폰
             if obj_type in self._YCB_ASSETS:
                 asset_path = self._YCB_ASSETS[obj_type]
                 usd_path = f"{ISAAC_NUCLEUS_DIR}/{asset_path}"
+                # 설탕 박스는 두께(Y축)를 키움
+                scale = (0.5, 0.8, 0.5) if obj_type == "sugar_box" else (0.5, 0.5, 0.5)
                 cfg = self.sim_utils.UsdFileCfg(
                     usd_path=usd_path,
-                    scale=(0.5, 0.5, 0.5),
+                    scale=scale,
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                 )
-                self.sim_utils.spawn_from_usd(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_from_usd(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
 
             elif obj_type == "box":
                 cfg = self.sim_utils.CuboidCfg(
                     size=(0.05, 0.05, 0.05),
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.8, 0.2, 0.2))
                     ),
                 )
-                self.sim_utils.spawn_cuboid(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_cuboid(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
 
             elif obj_type == "sphere":
                 cfg = self.sim_utils.SphereCfg(
                     radius=0.03,
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.2, 0.8, 0.2))
                     ),
                 )
-                self.sim_utils.spawn_sphere(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_sphere(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
 
             elif obj_type == "cylinder":
                 cfg = self.sim_utils.CylinderCfg(
                     radius=0.03,
                     height=0.06,
+                    mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                     visual_material=self.sim_utils.PreviewSurfaceCfg(
                         diffuse_color=kwargs.get("color", (0.2, 0.2, 0.8))
                     ),
                 )
-                self.sim_utils.spawn_cylinder(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_cylinder(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
             else:
                 print(f"지원하지 않는 물체 유형: {obj_type}")
                 return
-            
-            # 물체 정보 저장
+
+            # 물체 정보 저장 (목표 위치 기록, 실제 스폰은 높은 곳)
             obj_info = ObjectInfo(
                 id=object_id,
                 name=name or f"{obj_type}_{self._counter}",
@@ -474,8 +511,9 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 prim_path=prim_path,
             )
             self._objects[object_id] = obj_info
+
             print(f"[DEBUG] 물체 생성 완료: {object_id} at {prim_path}")
-            
+
         except Exception as e:
             print(f"물체 생성 오류: {e}")
     
@@ -528,31 +566,48 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         self._command_queue.put(('set_pose', object_id, position, rotation))
         return True
 
+    # 지연 포즈 최대 재시도 횟수 (physics view에 prim이 아직 없을 때)
+    _MAX_DEFERRED_RETRIES = 5
+
     def _execute_set_pose(
         self,
         object_id: str,
         position: Optional[List[float]],
         rotation: Optional[List[float]],
+        _retry_count: int = 0,
     ) -> None:
-        """실제 위치/회전 설정 (메인 스레드에서 실행, GPU tensor API 사용)"""
+        """실제 위치/회전 설정 (메인 스레드에서 실행, GPU tensor API 사용)
+
+        Isaac Lab 표준 방식: physx.create_simulation_view("torch", stage_id)로
+        시뮬레이션 뷰를 생성하고 rigid_body_view를 통해 GPU 파이프라인 호환 변환 수행.
+        """
         if object_id not in self._objects:
             return
 
+        obj = self._objects[object_id]
+        pos = list(position) if position else list(obj.position)
+        rot = list(rotation) if rotation else list(obj.rotation or [1, 0, 0, 0])
+        # rot 형식: [w, x, y, z] → PhysX 형식: [x, y, z, w]
+        qw, qx, qy, qz = rot[0], rot[1], rot[2], rot[3]
+
         try:
-            obj = self._objects[object_id]
-
-            pos = list(position) if position else list(obj.position)
-
-            rot = list(rotation) if rotation else list(obj.rotation or [1, 0, 0, 0])
-            # rot 형식: [w, x, y, z] → PhysX 형식: [x, y, z, w]
-            qw, qx, qy, qz = rot[0], rot[1], rot[2], rot[3]
-
-            # GPU tensor API로 위치 설정 (PhysX GPU Direct API 호환)
+            # GPU tensor API로 위치 설정 (Isaac Lab 표준 방식)
             import omni.physics.tensors.impl.api as physx
+            from isaaclab.sim.utils.stage import get_current_stage_id
 
-            sim_view = physx.create_simulation_view(self.device)
-            sim_view.set_subspace_roots("/World/DynamicObjects")
+            stage_id = get_current_stage_id()
+            sim_view = physx.create_simulation_view("torch", stage_id)
+            sim_view.set_subspace_roots("/")
             rb_view = sim_view.create_rigid_body_view(obj.prim_path)
+
+            if rb_view.count == 0:
+                # Physics가 아직 이 prim을 인식하지 못함 → 다음 프레임에 재시도
+                if _retry_count < self._MAX_DEFERRED_RETRIES:
+                    self._deferred_poses.append((object_id, position, rotation, _retry_count + 1))
+                    print(f"[DEBUG] rigid body 미발견, 재시도 예약 ({_retry_count + 1}/{self._MAX_DEFERRED_RETRIES}): {object_id}")
+                else:
+                    print(f"[WARN] rigid body 최대 재시도 초과, 포기: {object_id}")
+                return
 
             # PhysX 텐서 형식: [x, y, z, qx, qy, qz, qw]
             transforms = torch.tensor(
@@ -574,9 +629,10 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
 
             print(f"[DEBUG] 물체 위치 변경 (tensor API): {object_id} -> pos={pos}")
         except Exception as e:
-            # GPU tensor API 실패 시 USD API 폴백 (CPU 모드 등)
+            print(f"[WARN] tensor API 위치 설정 실패: {e}")
+            # GPU tensor API 실패 시 USD API 폴백 (Isaac Lab standardize_xform_ops 사용)
             try:
-                from pxr import UsdGeom, Gf
+                from isaaclab.sim.utils.transforms import standardize_xform_ops
                 import omni.usd
 
                 stage = omni.usd.get_context().get_stage()
@@ -585,14 +641,15 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     print(f"[ERROR] set_pose: prim을 찾을 수 없음: {obj.prim_path}")
                     return
 
-                xform = UsdGeom.Xformable(prim)
-                xform.ClearXformOpOrder()
+                standardize_xform_ops(
+                    prim,
+                    translation=tuple(pos),
+                    orientation=tuple(rot),
+                )
 
                 if position:
-                    xform.AddTranslateOp().Set(Gf.Vec3d(pos[0], pos[1], pos[2]))
                     obj.position = pos
                 if rotation:
-                    xform.AddOrientOp().Set(Gf.Quatd(rot[0], rot[1], rot[2], rot[3]))
                     obj.rotation = rot
 
                 print(f"[DEBUG] 물체 위치 변경 (USD 폴백): {object_id} -> pos={pos}")
@@ -631,16 +688,19 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 stage.RemovePrim(old_prim_path)
             del self._objects[object_id]
             
-            # 3. 새 물체 생성 (같은 위치)
+            # 3. 새 물체 생성 (높은 곳에서 떨어뜨리기)
             new_prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
-            
+
+            # 스폰 위치: 기존 위치보다 높은 곳
+            spawn_pos = (old_position[0], old_position[1], old_position[2] + self._SPAWN_DROP_HEIGHT)
+
             if target_type == "random_box":
                 # 랜덤 택배 박스 생성 (USD 에셋 우선, 큐보이드 폴백)
                 box_config = CardboardMaterial.generate_config()
                 CardboardMaterial.spawn(
                     new_prim_path, self.sim_utils, box_config,
-                    translation=tuple(old_position), orientation=tuple(old_rotation),
+                    translation=spawn_pos, orientation=tuple(old_rotation),
                 )
 
                 # 새 물체 정보 저장
@@ -653,7 +713,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     prim_path=new_prim_path,
                 )
                 self._objects[object_id] = new_obj
-                
+
                 print(f"[DEBUG] 물체 변환 완료: {object_id} -> 택배박스 (크기: {box_config['size']})")
             else:
                 print(f"지원하지 않는 변환 유형: {target_type}")
@@ -865,6 +925,7 @@ class DigitalTwinRobotAdapter(RobotAdapter):
     # Open Manipulator X 관절 설정
     ARM_JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4"]
     GRIPPER_JOINT_NAME = "gripper_left_joint"
+    GRIPPER_RIGHT_JOINT_NAME = "gripper_right_joint"
     JOINT_LIMITS = {
         "joint1": (-3.14159, 3.14159),
         "joint2": (-1.5, 1.5),
@@ -896,6 +957,7 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         # 관절 인덱스 매핑
         self._arm_joint_indices = [robot.joint_names.index(name) for name in self.ARM_JOINT_NAMES]
         self._gripper_joint_idx = robot.joint_names.index(self.GRIPPER_JOINT_NAME)
+        self._gripper_right_joint_idx = robot.joint_names.index(self.GRIPPER_RIGHT_JOINT_NAME)
 
         # 명령 큐 (스레드 안전)
         from queue import Queue
@@ -912,7 +974,7 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         self._joint_vel_buffer = torch.zeros((num_envs, robot.num_joints), device=self.device)
 
         print(f"[RobotAdapter] 초기화: joints={robot.joint_names}")
-        print(f"[RobotAdapter] arm_indices={self._arm_joint_indices}, gripper_idx={self._gripper_joint_idx}")
+        print(f"[RobotAdapter] arm_indices={self._arm_joint_indices}, gripper_idx={self._gripper_joint_idx}, gripper_right_idx={self._gripper_right_joint_idx}")
         print(f"[RobotAdapter] 원본 stiffness={self._original_stiffness}")
         print(f"[RobotAdapter] 원본 damping={self._original_damping}")
 
@@ -987,24 +1049,32 @@ class DigitalTwinRobotAdapter(RobotAdapter):
             print(f"[RobotAdapter] 텔레오프 업데이트 오류: {e}")
 
     def _execute_set_joints(self, positions: List[float]) -> None:
-        """실제 관절 위치 적용 (메인 스레드에서 실행)"""
+        """실제 관절 위치 적용 (메인 스레드에서 실행)
+
+        PD position target을 사용하여 부드럽게 이동합니다.
+        write_joint_state_to_sim()은 관절을 순간이동시켜 물체를 밀어내는
+        물리 불안정을 유발하므로 사용하지 않습니다.
+        """
         try:
             # 미리 할당된 버퍼 재사용 (CUDA 텐서 할당 최소화)
             self._joint_pos_buffer.zero_()
-            self._joint_vel_buffer.zero_()
 
             # arm 관절 설정
             for i, idx in enumerate(self._arm_joint_indices):
                 if i < len(positions):
                     self._joint_pos_buffer[:, idx] = positions[i]
 
-            # gripper 설정
+            # gripper 설정 (양쪽 그리퍼 모두 동일한 값으로 설정)
             if len(positions) > 4:
                 self._joint_pos_buffer[:, self._gripper_joint_idx] = positions[4]
+                self._joint_pos_buffer[:, self._gripper_right_joint_idx] = positions[4]
 
-            # 관절 상태 직접 설정 (PhysX 관절 위치/속도 텔레포트)
-            # 텔레오프 중에는 PD 게인=0이므로 sim.step()에서 되돌려지지 않음
-            self.robot.write_joint_state_to_sim(self._joint_pos_buffer, self._joint_vel_buffer)
+            # PD position target 설정 (부드러운 이동, 물리 안정성 유지)
+            # GPU 파이프라인: 텐서를 GPU에 유지해야 함 (device -1 = CPU 오류 방지)
+            indices = torch.tensor([0], dtype=torch.long, device=self.device)
+            self.robot.root_physx_view.set_dof_position_targets(
+                self._joint_pos_buffer, indices
+            )
 
             with self._joint_lock:
                 self._current_joint_positions = list(positions[:5])
@@ -1045,15 +1115,8 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         self._teleop_running = True
         self._demo_time = 0.0
 
-        # PD 컨트롤러 비활성화 (stiffness=0, damping=0)
-        # 이렇게 하면 sim.step()에서 PD 힘이 발생하지 않아
-        # write_joint_state_to_sim()으로 설정한 위치가 유지됨
-        import torch
-        zeros = torch.zeros_like(self._original_stiffness)
-        indices = torch.tensor([0], dtype=torch.long, device="cpu")
-        self.robot.root_physx_view.set_dof_stiffnesses(zeros.cpu(), indices)
-        self.robot.root_physx_view.set_dof_dampings(zeros.cpu(), indices)
-        print(f"[RobotAdapter] PD 게인 비활성화 (stiffness=0, damping=0)")
+        # PD 게인 유지 — set_dof_position_targets()로 부드럽게 추종
+        # PD 컨트롤러가 물리적으로 안정한 힘을 계산하므로 물체 밀어내기 방지
         print(f"[RobotAdapter] 텔레오퍼레이션 시작: mode={mode}")
 
     def _execute_stop_teleop(self) -> None:
@@ -1062,13 +1125,6 @@ class DigitalTwinRobotAdapter(RobotAdapter):
         if self._ros2_bridge is not None:
             self._ros2_bridge = None
         self._ros2_connected = False
-
-        # PD 컨트롤러 복원 (원본 stiffness/damping)
-        import torch
-        indices = torch.tensor([0], dtype=torch.long, device="cpu")
-        self.robot.root_physx_view.set_dof_stiffnesses(self._original_stiffness.cpu(), indices)
-        self.robot.root_physx_view.set_dof_dampings(self._original_damping.cpu(), indices)
-        print("[RobotAdapter] PD 게인 복원")
         print("[RobotAdapter] 텔레오퍼레이션 중지")
 
     def _update_demo_teleop(self) -> None:
