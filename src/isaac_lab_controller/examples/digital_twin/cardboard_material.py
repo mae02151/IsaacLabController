@@ -36,10 +36,14 @@ class CardboardMaterial:
     ROUGHNESS_RANGE = (0.85, 0.95)
     METALLIC = 0.0
 
-    # NVIDIA Nucleus 박스 에셋 (텍스처 포함, 확인됨)
+    # NVIDIA Nucleus 박스/패키지 에셋 (텍스처 포함)
     _NUCLEUS_BOX_ASSETS = [
         "Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd",
         "Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd",
+        "Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd",
+        "Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
+        "Environments/Simple_Warehouse/Props/SM_CardBoxB_01_681.usd",
+        "Props/KLT_Bin/small_KLT.usd",
     ]
 
     @classmethod
