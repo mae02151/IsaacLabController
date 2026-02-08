@@ -416,6 +416,9 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         "mustard_bottle": "Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
     }
 
+    # 스폰 시 Z 오프셋 (위에서 떨어뜨리기, 기존 물체 밀어내기 방지)
+    _SPAWN_DROP_HEIGHT = 0.3
+
     def _execute_spawn(
         self,
         object_id: str,
@@ -425,12 +428,19 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
         name: Optional[str] = None,
         **kwargs
     ) -> None:
-        """실제 물체 생성 (메인 스레드에서 실행)"""
+        """실제 물체 생성 (메인 스레드에서 실행)
+
+        물체를 목표 위치보다 높은 곳에서 스폰하여 중력으로 자연스럽게 떨어뜨립니다.
+        이렇게 하면 기존 물체를 밀어내는 현상을 방지할 수 있습니다.
+        """
         try:
             from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
             prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
+
+            # 스폰 위치: 목표 Z + 드롭 높이
+            spawn_pos = (position[0], position[1], position[2] + self._SPAWN_DROP_HEIGHT)
 
             # YCB USD 에셋 직접 스폰
             if obj_type in self._YCB_ASSETS:
@@ -442,7 +452,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
                 )
-                self.sim_utils.spawn_from_usd(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_from_usd(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
 
             elif obj_type == "box":
                 cfg = self.sim_utils.CuboidCfg(
@@ -453,7 +463,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                         diffuse_color=kwargs.get("color", (0.8, 0.2, 0.2))
                     ),
                 )
-                self.sim_utils.spawn_cuboid(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_cuboid(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
 
             elif obj_type == "sphere":
                 cfg = self.sim_utils.SphereCfg(
@@ -464,7 +474,7 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                         diffuse_color=kwargs.get("color", (0.2, 0.8, 0.2))
                     ),
                 )
-                self.sim_utils.spawn_sphere(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_sphere(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
 
             elif obj_type == "cylinder":
                 cfg = self.sim_utils.CylinderCfg(
@@ -476,12 +486,12 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                         diffuse_color=kwargs.get("color", (0.2, 0.2, 0.8))
                     ),
                 )
-                self.sim_utils.spawn_cylinder(prim_path, cfg, translation=tuple(position), orientation=tuple(rotation))
+                self.sim_utils.spawn_cylinder(prim_path, cfg, translation=spawn_pos, orientation=tuple(rotation))
             else:
                 print(f"지원하지 않는 물체 유형: {obj_type}")
                 return
-            
-            # 물체 정보 저장
+
+            # 물체 정보 저장 (목표 위치 기록, 실제 스폰은 높은 곳)
             obj_info = ObjectInfo(
                 id=object_id,
                 name=name or f"{obj_type}_{self._counter}",
@@ -491,10 +501,6 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 prim_path=prim_path,
             )
             self._objects[object_id] = obj_info
-
-            # GPU 파이프라인 호환: 다음 프레임에서 GPU tensor API로 위치 재설정
-            # spawn_from_usd의 translation은 GPU Direct API에서 무시될 수 있음
-            self._deferred_poses.append((object_id, position, rotation))
 
             print(f"[DEBUG] 물체 생성 완료: {object_id} at {prim_path}")
 
@@ -672,16 +678,19 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                 stage.RemovePrim(old_prim_path)
             del self._objects[object_id]
             
-            # 3. 새 물체 생성 (같은 위치)
+            # 3. 새 물체 생성 (높은 곳에서 떨어뜨리기)
             new_prim_path = f"/World/DynamicObjects/obj_{self._counter}"
             self._counter += 1
-            
+
+            # 스폰 위치: 기존 위치보다 높은 곳
+            spawn_pos = (old_position[0], old_position[1], old_position[2] + self._SPAWN_DROP_HEIGHT)
+
             if target_type == "random_box":
                 # 랜덤 택배 박스 생성 (USD 에셋 우선, 큐보이드 폴백)
                 box_config = CardboardMaterial.generate_config()
                 CardboardMaterial.spawn(
                     new_prim_path, self.sim_utils, box_config,
-                    translation=tuple(old_position), orientation=tuple(old_rotation),
+                    translation=spawn_pos, orientation=tuple(old_rotation),
                 )
 
                 # 새 물체 정보 저장
@@ -694,9 +703,6 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
                     prim_path=new_prim_path,
                 )
                 self._objects[object_id] = new_obj
-
-                # GPU 파이프라인 호환: 다음 프레임에서 위치 재설정
-                self._deferred_poses.append((object_id, old_position, old_rotation))
 
                 print(f"[DEBUG] 물체 변환 완료: {object_id} -> 택배박스 (크기: {box_config['size']})")
             else:
