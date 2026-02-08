@@ -135,16 +135,24 @@ class DataCollector:
             w, h = self._image_size
             rgb_resized = cv2.resize(rgb_np, (w, h), interpolation=cv2.INTER_AREA)
 
-            # 2. 로봇 관절 상태 (로봇이 없으면 빈 배열)
+            # 2. 로봇 관절 위치 읽기
             if self._robot_adapter is not None:
                 joint_positions = self._robot_adapter.get_joint_positions()
-                state = np.array(joint_positions, dtype=np.float32)
+                joints = np.array(joint_positions, dtype=np.float32)
             else:
-                state = np.zeros(0, dtype=np.float32)
+                joints = np.zeros(0, dtype=np.float32)
 
-            # 3. 액션 (현재 관절 위치를 액션으로 기록)
-            action = state.copy()
-            self._prev_joint_positions = state.copy()
+            # 3. 액션 = 현재 관절 위치 그대로 [j1, j2, j3, j4, gripper]
+            action = joints.copy()
+
+            # 4. 상태 = 관절 위치 + 가우시안 노이즈 (관측 노이즈 시뮬레이션)
+            #    관절별 노이즈 표준편차: arm 0.01 rad, gripper 0.001 rad
+            if len(joints) > 0:
+                noise_std = np.array([0.01, 0.01, 0.01, 0.01, 0.001], dtype=np.float32)
+                noise = np.random.normal(0.0, noise_std).astype(np.float32)
+                state = joints + noise
+            else:
+                state = joints
 
             # 4. 버퍼에 추가
             self._images.append(rgb_resized)

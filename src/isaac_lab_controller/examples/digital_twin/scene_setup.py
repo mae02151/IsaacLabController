@@ -151,6 +151,8 @@ def spawn_pallets(
             usd_path = f"{ISAAC_NUCLEUS_DIR}/Props/KLT_Bin/small_KLT_visual_collision.usd"
             cfg = sim_utils.UsdFileCfg(usd_path=usd_path, scale=scale)
             sim_utils.spawn_from_usd(prim_path, cfg, translation=pos)
+            # 충돌 근사를 convexDecomposition으로 변경하여 내부 빈 공간 인식
+            _set_concave_collision(prim_path)
             print(f"[INFO] 팔레트 스폰 (USD): {prim_path}")
         except Exception as e:
             print(f"[INFO] USD 팔레트 실패, 큐보이드 사용: {e}")
@@ -168,6 +170,42 @@ def spawn_pallets(
 
         if highlight_index is not None and i == highlight_index:
             _apply_material(prim_path, highlight_color)
+
+
+def _set_concave_collision(prim_path: str):
+    """팔레트 충돌 메시를 convexDecomposition으로 변경하여 오목한 내부 공간 인식
+
+    기본 convexHull은 내부가 꽉 찬 형태로 처리되어 물체가 안으로 들어가지 못합니다.
+    convexDecomposition은 메시를 여러 볼록 조각으로 분해하여 오목한 형상을 지원합니다.
+    """
+    try:
+        import omni.usd
+        from pxr import Usd, UsdPhysics, UsdGeom
+
+        stage = omni.usd.get_context().get_stage()
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid():
+            return
+
+        changed = False
+        # 모든 하위 프림을 재귀적으로 순회 (Usd.PrimRange)
+        for descendant in Usd.PrimRange(prim):
+            if descendant.GetTypeName() == "Mesh":
+                mesh_collision_api = UsdPhysics.MeshCollisionAPI.Get(stage, descendant.GetPath())
+                if not mesh_collision_api:
+                    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(descendant)
+                mesh_collision_api.GetApproximationAttr().Set("convexDecomposition")
+                changed = True
+                print(f"[INFO] 충돌 근사 변경: {descendant.GetPath()} -> convexDecomposition")
+
+        if not changed:
+            # Mesh 프림이 없는 경우, 루트 프림 자체에 적용
+            if not UsdPhysics.MeshCollisionAPI.Get(stage, prim.GetPath()):
+                UsdPhysics.MeshCollisionAPI.Apply(prim)
+            UsdPhysics.MeshCollisionAPI(prim).GetApproximationAttr().Set("convexDecomposition")
+            print(f"[INFO] 충돌 근사 변경 (루트): {prim_path} -> convexDecomposition")
+    except Exception as e:
+        print(f"[WARN] 충돌 근사 변경 실패: {e}")
 
 
 def _apply_material(

@@ -98,7 +98,11 @@ def main():
         task_description="pick_up_object",
     )
 
-    # 6. 데이터 수집 API 서버 시작 (포트 8081)
+    # 6. DataCollector를 ZMQ 브릿지에 등록 (server_standalone.py에서 접근 가능)
+    bridge.register_adapter("data_collector", collector)
+    print("[DATA-SIM] DataCollector ZMQ 브릿지 등록 완료")
+
+    # 7. 데이터 수집 API 서버 시작 (포트 8081)
     data_server_port = 8081
     data_server = ControlServer(adapter, port=data_server_port)
     data_server.app.state.data_collector = collector

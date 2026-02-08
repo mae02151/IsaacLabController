@@ -443,16 +443,18 @@ class DigitalTwinObjectAdapter(ObjectAdapter):
             spawn_pos = (position[0], position[1], position[2] + self._SPAWN_DROP_HEIGHT)
 
             # 큐보이드 기준 질량 (0.05³ m³ × 1000 kg/m³ = 0.125 kg)
-            _CUBOID_MASS = 0.125
+            _CUBOID_MASS = 0.08
             _mass_props = self.sim_utils.MassPropertiesCfg(mass=_CUBOID_MASS)
 
             # YCB USD 에셋 직접 스폰
             if obj_type in self._YCB_ASSETS:
                 asset_path = self._YCB_ASSETS[obj_type]
                 usd_path = f"{ISAAC_NUCLEUS_DIR}/{asset_path}"
+                # 설탕 박스는 두께(Y축)를 키움
+                scale = (0.5, 0.8, 0.5) if obj_type == "sugar_box" else (0.5, 0.5, 0.5)
                 cfg = self.sim_utils.UsdFileCfg(
                     usd_path=usd_path,
-                    scale=(0.5, 0.5, 0.5),
+                    scale=scale,
                     mass_props=_mass_props,
                     rigid_props=self.sim_utils.RigidBodyPropertiesCfg(),
                     collision_props=self.sim_utils.CollisionPropertiesCfg(),
