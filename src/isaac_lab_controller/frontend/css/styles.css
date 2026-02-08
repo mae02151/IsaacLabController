@@ -89,51 +89,6 @@ body {
     }
 }
 
-/* 메인 탭 메뉴 (VLA / Reinforcement) */
-.main-tab-menu {
-    display: flex;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 1rem 2rem;
-    background: var(--bg-card);
-    border-bottom: 1px solid var(--border-color);
-}
-
-.main-tab-btn {
-    padding: 0.875rem 2rem;
-    background: transparent;
-    border: 2px solid var(--border-color);
-    color: var(--text-secondary);
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    border-radius: 10px;
-    transition: all 0.3s ease;
-    min-width: 150px;
-}
-
-.main-tab-btn:hover {
-    background: var(--bg-input);
-    color: var(--text-primary);
-    border-color: var(--primary-color);
-}
-
-.main-tab-btn.active {
-    background: linear-gradient(135deg, var(--primary-color), #8b5cf6);
-    color: white;
-    border-color: transparent;
-    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
-}
-
-/* 메인 탭 컨텐츠 */
-.main-tab-content {
-    display: none;
-}
-
-.main-tab-content.active {
-    display: block;
-}
-
 /* 메인 컨텐츠 */
 .main-content {
     display: flex;
@@ -473,48 +428,6 @@ input[type="color"] {
     color: var(--text-secondary);
     font-size: 0.75rem;
     border-top: 1px solid var(--border-color);
-}
-
-/* RL 패널 스타일 */
-.btn-lg {
-    padding: 1rem 1.5rem;
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.rl-hint {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    margin-top: 0.375rem;
-}
-
-.rl-status-box {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--bg-input);
-    border-radius: 8px;
-    padding: 0.875rem 1rem;
-    border: 1px solid var(--border-color);
-}
-
-.rl-status-label {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-}
-
-.rl-status-value {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-}
-
-.rl-status-value.running {
-    color: var(--success-color);
-}
-
-.rl-status-value.error {
-    color: var(--danger-color);
 }
 
 /* 로봇 제어 패널 */

@@ -1,13 +1,12 @@
 /**
  * IsaacLab Controller 메인 앱
- * VLA / Reinforcement 탭 지원
+ * VLA 탭 지원
  */
 
 
 class App {
     constructor() {
         this.api = window.api;
-        this.currentMainTab = 'vla';  // 현재 활성 메인 탭
         this.isStreaming = true;
         this.streamingInterval = null;
         this.objects = [];
@@ -21,13 +20,11 @@ class App {
     }
 
     async init() {
-        this.setupMainTabNavigation();
         this.setupTabNavigation();
         this.setupCameraControls();
         this.setupObjectControls();
         this.setupMaterialControls();
         this.setupPreviewControls();
-        this.setupRLControls();
         this.setupRobotControls();
 
         await this.loadInitialData();
@@ -37,37 +34,11 @@ class App {
         this.updateConnectionStatus(true);
     }
 
-    // ===== 메인 탭 네비게이션 (VLA / Reinforcement) =====
-
-    setupMainTabNavigation() {
-        const mainTabBtns = document.querySelectorAll('.main-tab-btn');
-        const mainTabContents = document.querySelectorAll('.main-tab-content');
-
-        mainTabBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tabId = btn.dataset.mainTab;
-                this.currentMainTab = tabId;
-
-                // 버튼 상태 변경
-                mainTabBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-
-                // 컨텐츠 표시
-                mainTabContents.forEach(c => c.classList.remove('active'));
-                document.getElementById(`main-tab-${tabId}`).classList.add('active');
-
-                console.log('메인 탭 변경:', tabId);
-            });
-        });
-    }
-
     // ===== 탭 네비게이션 (Camera / Objects / Materials) =====
 
     setupTabNavigation() {
         // VLA 탭용 (카메라/물체/재질)
         this.setupTabsForSection('vla');
-        // RL 탭용 (Train/Inference)
-        this.setupTabsForSection('rl');
     }
 
     setupTabsForSection(suffix) {
@@ -542,90 +513,10 @@ class App {
         }
     }
 
-    // ===== RL (Train / Inference) 제어 =====
-
-    setupRLControls() {
-        // Train 시작
-        const btnStartTrain = document.getElementById('btnStartTrain');
-        const btnStopTrain = document.getElementById('btnStopTrain');
-        if (btnStartTrain) {
-            btnStartTrain.addEventListener('click', async () => {
-                const numEnvs = parseInt(document.getElementById('numEnvs').value) || 64;
-                btnStartTrain.disabled = true;
-                this.updateRLStatus('train', '시작 중...', 'running');
-
-                const result = await this.api.startTrain(numEnvs);
-                if (result.success) {
-                    this.updateRLStatus('train', '학습 중', 'running');
-                    btnStartTrain.style.display = 'none';
-                    btnStopTrain.style.display = 'block';
-                } else {
-                    this.updateRLStatus('train', '시작 실패', 'error');
-                    btnStartTrain.disabled = false;
-                }
-            });
-        }
-
-        if (btnStopTrain) {
-            btnStopTrain.addEventListener('click', async () => {
-                const result = await this.api.stopTrain();
-                this.updateRLStatus('train', '대기 중', '');
-                btnStopTrain.style.display = 'none';
-                const btnStart = document.getElementById('btnStartTrain');
-                btnStart.style.display = 'block';
-                btnStart.disabled = false;
-            });
-        }
-
-        // Inference 시작
-        const btnStartInference = document.getElementById('btnStartInference');
-        const btnStopInference = document.getElementById('btnStopInference');
-        if (btnStartInference) {
-            btnStartInference.addEventListener('click', async () => {
-                btnStartInference.disabled = true;
-                this.updateRLStatus('inference', '시작 중...', 'running');
-
-                const result = await this.api.startInference();
-                if (result.success) {
-                    this.updateRLStatus('inference', '추론 중', 'running');
-                    btnStartInference.style.display = 'none';
-                    btnStopInference.style.display = 'block';
-                } else {
-                    this.updateRLStatus('inference', '시작 실패', 'error');
-                    btnStartInference.disabled = false;
-                }
-            });
-        }
-
-        if (btnStopInference) {
-            btnStopInference.addEventListener('click', async () => {
-                const result = await this.api.stopInference();
-                this.updateRLStatus('inference', '대기 중', '');
-                btnStopInference.style.display = 'none';
-                const btnStart = document.getElementById('btnStartInference');
-                btnStart.style.display = 'block';
-                btnStart.disabled = false;
-            });
-        }
-    }
-
-    updateRLStatus(mode, text, statusClass) {
-        const statusEl = document.getElementById(`${mode}Status`);
-        if (statusEl) {
-            statusEl.textContent = text;
-            statusEl.className = 'rl-status-value';
-            if (statusClass) {
-                statusEl.classList.add(statusClass);
-            }
-        }
-    }
-
     // ===== 미리보기 제어 =====
 
     setupPreviewControls() {
-        ['vla', 'rl'].forEach(suffix => {
-            this.setupPreviewControlsForSection(suffix);
-        });
+        this.setupPreviewControlsForSection('vla');
     }
 
     setupPreviewControlsForSection(suffix) {
@@ -645,13 +536,10 @@ class App {
             btnToggleStream.addEventListener('click', () => {
                 this.isStreaming = !this.isStreaming;
 
-                // 모든 탭의 버튼 상태 동기화
-                ['vla', 'rl'].forEach(s => {
-                    const btn = document.getElementById(`btnToggleStream-${s}`);
-                    if (btn) {
-                        btn.textContent = this.isStreaming ? '⏸️ 스트림 일시정지' : '▶️ 스트림 재생';
-                    }
-                });
+                const toggleBtn = document.getElementById(`btnToggleStream-vla`);
+                if (toggleBtn) {
+                    toggleBtn.textContent = this.isStreaming ? '⏸️ 스트림 일시정지' : '▶️ 스트림 재생';
+                }
 
                 if (this.isStreaming) {
                     this.startStreaming();
@@ -677,22 +565,17 @@ class App {
                 const blob = await response.blob();
                 const url = URL.createObjectURL(blob);
 
-                ['vla', 'rl'].forEach(suffix => {
-                    const preview = document.getElementById(`previewImage-${suffix}`);
-                    const overlay = document.getElementById(`previewOverlay-${suffix}`);
-                    if (preview) {
-                        // 이전 Blob URL 해제
-                        if (preview._blobUrl) URL.revokeObjectURL(preview._blobUrl);
-                        preview._blobUrl = url;
-                        preview.src = url;
-                    }
-                    if (overlay) overlay.classList.add('hidden');
-                });
+                const preview = document.getElementById('previewImage-vla');
+                const overlay = document.getElementById('previewOverlay-vla');
+                if (preview) {
+                    if (preview._blobUrl) URL.revokeObjectURL(preview._blobUrl);
+                    preview._blobUrl = url;
+                    preview.src = url;
+                }
+                if (overlay) overlay.classList.add('hidden');
             } catch (e) {
-                ['vla', 'rl'].forEach(suffix => {
-                    const overlay = document.getElementById(`previewOverlay-${suffix}`);
-                    if (overlay) overlay.classList.remove('hidden');
-                });
+                const errOverlay = document.getElementById('previewOverlay-vla');
+                if (errOverlay) errOverlay.classList.remove('hidden');
                 // 에러 시 짧은 대기 후 재시도
                 await new Promise(r => setTimeout(r, 100));
             }

@@ -155,28 +155,6 @@ class IsaacLabAPI {
         return this.get('/api/robot/teleop/status');
     }
 
-    // ===== RL API =====
-
-    async startTrain(numEnvs = 64) {
-        return this.post('/api/rl/train/start', { num_envs: numEnvs });
-    }
-
-    async stopTrain() {
-        return this.post('/api/rl/train/stop', {});
-    }
-
-    async startInference() {
-        return this.post('/api/rl/inference/start', {});
-    }
-
-    async stopInference() {
-        return this.post('/api/rl/inference/stop', {});
-    }
-
-    async getRLStatus() {
-        return this.get('/api/rl/status');
-    }
-
     // ===== WebSocket =====
 
     connectStream(onFrame, onError) {

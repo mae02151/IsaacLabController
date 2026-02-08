@@ -19,14 +19,8 @@
             </div>
         </header>
 
-        <!-- 메인 탭 (VLA / Reinforcement) -->
-        <div class="main-tab-menu">
-            <button class="main-tab-btn active" data-main-tab="vla">🤖 VLA</button>
-            <button class="main-tab-btn" data-main-tab="reinforcement">🎯 Reinforcement</button>
-        </div>
-
         <!-- ==================== VLA 탭 ==================== -->
-        <div class="main-tab-content active" id="main-tab-vla">
+        <div id="main-tab-vla">
             <main class="main-content">
                 <!-- 왼쪽: 영상 미리보기 -->
                 <section class="preview-section">
@@ -244,74 +238,6 @@
                             </div>
                         </div>
 
-                    </div>
-                </aside>
-            </main>
-        </div>
-
-        <!-- ==================== Reinforcement 탭 ==================== -->
-        <div class="main-tab-content" id="main-tab-reinforcement">
-            <main class="main-content">
-                <!-- 왼쪽: 영상 미리보기 -->
-                <section class="preview-section">
-                    <div class="preview-container">
-                        <img id="previewImage-rl" class="preview-image" src="" alt="시뮬레이션 미리보기">
-                        <div class="preview-overlay" id="previewOverlay-rl">
-                            <p>스트리밍 연결 중...</p>
-                        </div>
-                    </div>
-                    <div class="preview-controls">
-                        <button id="btnSnapshot-rl" class="btn btn-secondary">📷 스냅샷</button>
-                        <button id="btnToggleStream-rl" class="btn btn-primary">⏸️ 스트림 일시정지</button>
-                    </div>
-                </section>
-
-                <!-- 오른쪽: RL 제어 패널 -->
-                <aside class="control-panel">
-                    <!-- 탭 메뉴 (Train / Inference) -->
-                    <div class="tab-menu">
-                        <button class="tab-btn active" data-tab="train-rl">🏋️ Train</button>
-                        <button class="tab-btn" data-tab="inference-rl">🚀 Inference</button>
-                    </div>
-
-                    <!-- Train 탭 -->
-                    <div class="tab-content active" id="tab-train-rl">
-                        <h3>학습 설정</h3>
-
-                        <div class="control-group">
-                            <label>로봇 수 (num_envs)</label>
-                            <input type="number" id="numEnvs" min="1" max="4096" value="64" step="1">
-                            <p class="rl-hint">동시에 학습할 환경(로봇) 수를 설정합니다.</p>
-                        </div>
-
-                        <div class="control-group">
-                            <div class="rl-status-box" id="trainStatusBox">
-                                <span class="rl-status-label">상태</span>
-                                <span class="rl-status-value" id="trainStatus">대기 중</span>
-                            </div>
-                        </div>
-
-                        <div class="control-group">
-                            <button id="btnStartTrain" class="btn btn-success btn-lg">▶️ Train 시작</button>
-                            <button id="btnStopTrain" class="btn btn-danger btn-lg" style="margin-top: 0.5rem; display: none;">⏹️ Train 중지</button>
-                        </div>
-                    </div>
-
-                    <!-- Inference 탭 -->
-                    <div class="tab-content" id="tab-inference-rl">
-                        <h3>추론 실행</h3>
-
-                        <div class="control-group">
-                            <div class="rl-status-box" id="inferenceStatusBox">
-                                <span class="rl-status-label">상태</span>
-                                <span class="rl-status-value" id="inferenceStatus">대기 중</span>
-                            </div>
-                        </div>
-
-                        <div class="control-group">
-                            <button id="btnStartInference" class="btn btn-success btn-lg">▶️ Inference 시작</button>
-                            <button id="btnStopInference" class="btn btn-danger btn-lg" style="margin-top: 0.5rem; display: none;">⏹️ Inference 중지</button>
-                        </div>
                     </div>
                 </aside>
             </main>
