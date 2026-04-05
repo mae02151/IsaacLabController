@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isaac-lab-controller"
+version = "0.1.0"
+description = "재사용 가능한 IsaacLab 프론트엔드 제어 시스템"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "IsaacLab User"}
+]
+
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "websockets>=11.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# IsaacLab 환경에서는 이미 numpy, opencv가 설치되어 있으므로 선택적
+standalone = [
+    "numpy>=1.22,<2",
+    "opencv-python>=4.5",
+]
+
+dev = [
+    "pytest>=7.0.0",
+    "httpx>=0.24.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"isaac_lab_controller.frontend" = ["**/*"]
